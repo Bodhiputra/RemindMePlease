@@ -1,0 +1,33 @@
+{
+  "name": "remindmeplease",
+  "version": "0.1.0",
+  "description": "Minimalist notch-style task and deadline manager for macOS",
+  "productName": "RemindMePlease",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "node-cron": "^3.0.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "electron": "^29.4.6",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.remindmeplease.app",
+    "productName": "RemindMePlease",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"],
+      "icon": "assets/icon.icns"
+    },
+    "extraResources": []
+  }
+}

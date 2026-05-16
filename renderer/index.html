@@ -10,11 +10,11 @@
 
   <!-- COLLAPSED BAR -->
   <div id="notch-bar" class="notch-bar">
-    <span id="bar-count" class="bar-stat">● 0 tasks</span>
-    <span id="bar-urgent" class="bar-stat urgent hidden">⚠ 0 due</span>
-    <span class="bar-divider">|</span>
-    <span id="bar-progress" class="bar-stat">━━ 0%</span>
+    <span id="bar-count" class="bar-stat">● 0</span>
+    <span id="bar-urgent" class="bar-stat urgent hidden">⚠ 0</span>
+    <span id="bar-progress" class="bar-stat muted">0%</span>
     <button id="btn-toggle" class="bar-btn" title="Open (Cmd+Shift+Space)">▾</button>
+    <button id="btn-hide" class="bar-btn hide-btn" title="Hide notch (Cmd+Shift+Space to restore)">—</button>
   </div>
 
   <!-- EXPANDED PANEL -->
@@ -50,12 +50,43 @@
 
     <!-- Footer -->
     <div class="panel-footer">
-      <button id="btn-add" class="footer-btn primary">+ Add Task</button>
-      <button id="btn-quick-note" class="footer-btn" title="Quick note">📝</button>
+      <button id="btn-add" class="footer-btn primary">+ Task</button>
+      <button id="btn-quick-note" class="footer-btn icon-only" title="Quick note">📝</button>
       <div class="spacer"></div>
-      <button id="btn-export-json" class="footer-btn small" title="Export JSON">⬆ JSON</button>
-      <button id="btn-export-csv" class="footer-btn small" title="Export CSV">⬆ CSV</button>
-      <button id="btn-open-folder" class="footer-btn small" title="Open data folder">📁</button>
+      <button id="btn-settings" class="footer-btn icon-only" title="Settings">⚙</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="settings-panel hidden">
+      <div class="settings-header">
+        <span>Settings</span>
+        <button id="btn-close-settings" class="icon-btn">✕</button>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">Keyboard shortcut</div>
+        <div class="settings-value">Cmd + Shift + Space</div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">Categories</div>
+        <div id="category-list" class="category-list"></div>
+        <div class="settings-row">
+          <input id="new-category-input" type="text" class="form-input" placeholder="New category..." />
+          <button id="btn-add-category" class="footer-btn small">Add</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">Export data</div>
+        <div class="settings-row">
+          <button id="btn-export-json" class="footer-btn small">Export JSON</button>
+          <button id="btn-export-csv" class="footer-btn small">Export CSV</button>
+          <button id="btn-open-folder" class="footer-btn small">Open folder</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">Notch visibility</div>
+        <button id="btn-hide-from-settings" class="footer-btn small">Hide notch</button>
+        <div class="settings-hint">Restore with Cmd+Shift+Space</div>
+      </div>
     </div>
 
     <!-- Add / Edit Task Form -->

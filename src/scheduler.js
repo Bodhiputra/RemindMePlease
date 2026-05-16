@@ -3,9 +3,11 @@ const { Notification } = require('electron')
 const storage = require('./storage')
 
 let win = null
+let showTempFn = null
 
-function init (mainWindow) {
+function init (mainWindow, showTempCallback) {
   win = mainWindow
+  showTempFn = showTempCallback || null
 
   // Check reminders every minute
   cron.schedule('* * * * *', () => {
@@ -70,6 +72,7 @@ function checkReminders () {
 }
 
 function fireNotification (task) {
+  if (showTempFn) showTempFn()
   const deadline = task.deadline
     ? `Due ${formatDeadline(new Date(task.deadline))}`
     : 'No deadline set'

@@ -26,6 +26,17 @@ async function init () {
     setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
   })
 
+  // Notification fired while hidden — show bar temporarily, pulse, then auto-hide via main
+  window.rmp.on('notch:show-temp', () => {
+    document.getElementById('notch-bar').classList.add('pulsing')
+    setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
+  })
+
+  // Shortcut pressed while hidden — notch is now visible again
+  window.rmp.on('notch:shown', () => {
+    // Nothing extra needed — main already made window visible
+  })
+
   window.rmp.on('shortcut:toggle', () => togglePanel())
 }
 
@@ -43,7 +54,7 @@ function renderBar () {
     return (d - now) / (1000 * 60 * 60 * 24) <= 2
   })
 
-  document.getElementById('bar-count').textContent = `● ${total} task${total !== 1 ? 's' : ''}`
+  document.getElementById('bar-count').textContent = `● ${total}`
   const urgentEl = document.getElementById('bar-urgent')
   if (urgent.length > 0) {
     urgentEl.textContent = `⚠ ${urgent.length} due`
@@ -51,7 +62,7 @@ function renderBar () {
   } else {
     urgentEl.classList.add('hidden')
   }
-  document.getElementById('bar-progress').textContent = `━━ ${pct}%`
+  document.getElementById('bar-progress').textContent = `${pct}%`
 }
 
 // ─── TOGGLE ───────────────────────────────────────────────────────────────────
@@ -666,6 +677,13 @@ function setupEvents () {
     togglePanel()
   })
 
+  // Hide notch
+  document.getElementById('btn-hide').addEventListener('click', e => {
+    e.stopPropagation()
+    if (isExpanded) collapsePanel()
+    window.rmp.hideNotch()
+  })
+
   // View tabs
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', e => {
@@ -711,6 +729,37 @@ function setupEvents () {
 
   document.getElementById('quick-note-text').addEventListener('input', saveQuickNote)
 
+  // Settings panel
+  document.getElementById('btn-settings').addEventListener('click', e => {
+    e.stopPropagation()
+    const sp = document.getElementById('settings-panel')
+    const isOpen = !sp.classList.contains('hidden')
+    sp.classList.toggle('hidden')
+    if (!isOpen) renderCategoryList()
+    updateExpandHeight()
+  })
+
+  document.getElementById('btn-close-settings').addEventListener('click', e => {
+    e.stopPropagation()
+    document.getElementById('settings-panel').classList.add('hidden')
+    updateExpandHeight()
+  })
+
+  document.getElementById('btn-add-category').addEventListener('click', e => {
+    e.stopPropagation()
+    const inp = document.getElementById('new-category-input')
+    const val = inp.value.trim()
+    if (!val || data.categories.includes(val)) return
+    data.categories.push(val)
+    inp.value = ''
+    save()
+    renderCategoryList()
+  })
+
+  document.getElementById('new-category-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-add-category').click()
+  })
+
   document.getElementById('btn-export-json').addEventListener('click', e => {
     e.stopPropagation()
     window.rmp.exportJson()
@@ -724,6 +773,13 @@ function setupEvents () {
   document.getElementById('btn-open-folder').addEventListener('click', e => {
     e.stopPropagation()
     window.rmp.openDataFolder()
+  })
+
+  document.getElementById('btn-hide-from-settings').addEventListener('click', e => {
+    e.stopPropagation()
+    document.getElementById('settings-panel').classList.add('hidden')
+    collapsePanel()
+    window.rmp.hideNotch()
   })
 
   // Form events
@@ -758,6 +814,25 @@ function setupEvents () {
         collapsePanel()
       }
     }
+  })
+}
+
+// ─── SETTINGS ─────────────────────────────────────────────────────────────────
+function renderCategoryList () {
+  const el = document.getElementById('category-list')
+  el.innerHTML = (data.categories || []).map((c, i) => `
+    <div class="category-item">
+      <span>${escHtml(c)}</span>
+      <button class="icon-btn small" data-del-cat="${i}">✕</button>
+    </div>
+  `).join('')
+
+  el.querySelectorAll('[data-del-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      data.categories.splice(parseInt(btn.dataset.delCat), 1)
+      save()
+      renderCategoryList()
+    })
   })
 }
 

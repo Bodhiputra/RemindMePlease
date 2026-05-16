@@ -66,19 +66,28 @@ html, body {
   font-size: 11px;
 }
 
+.bar-stat.muted { color: #3d3d3d; }
+
 .bar-btn {
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   padding: 0;
-  margin-left: auto;
   line-height: 1;
   transition: color 0.15s;
+  flex-shrink: 0;
 }
 
 .bar-btn:hover { color: var(--text); }
+
+.hide-btn {
+  font-size: 16px;
+  color: #2a2a2a;
+  margin-left: 2px;
+}
+.hide-btn:hover { color: var(--text-muted); }
 
 /* Pulse animation on notification */
 @keyframes pulse {
@@ -498,6 +507,7 @@ html, body {
 .footer-btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
 .footer-btn.primary:hover { opacity: 0.9; }
 .footer-btn.small { font-size: 11px; padding: 4px 8px; }
+.footer-btn.icon-only { padding: 5px 8px; }
 
 .icon-btn {
   background: none;
@@ -680,6 +690,77 @@ html, body {
 
 /* Utilities */
 .hidden { display: none !important; }
+
+/* ─── SETTINGS PANEL ─── */
+.settings-panel {
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-panel:not(.hidden) { display: flex; }
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.settings-value {
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.settings-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.category-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  background: var(--bg2);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
 
 .progress-ring {
   font-size: 11px;

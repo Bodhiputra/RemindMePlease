@@ -14,6 +14,8 @@ const EXPANDED_MAX_HEIGHT = 600
 
 let win = null
 let isExpanded = false
+let isHidden = false
+let autoHideTimer = null
 
 function getNotchPosition (width) {
   const display = screen.getPrimaryDisplay()
@@ -49,8 +51,25 @@ function createWindow () {
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
 
-  scheduler.init(win)
+  scheduler.init(win, showTemporarily)
   watcher.init(win)
+}
+
+// Show notch temporarily (called by scheduler on notification)
+function showTemporarily () {
+  if (!win) return
+  if (autoHideTimer) clearTimeout(autoHideTimer)
+  isHidden = false
+  win.setOpacity(1)
+  win.setIgnoreMouseEvents(false)
+  win.webContents.send('notch:show-temp')
+  // Auto-hide again after 8s if user doesn't interact
+  autoHideTimer = setTimeout(() => {
+    if (isHidden) return // user manually showed it, don't hide
+    win.setOpacity(0)
+    win.setIgnoreMouseEvents(true, { forward: true })
+    isHidden = true
+  }, 8000)
 }
 
 // IPC — storage
@@ -131,6 +150,21 @@ ipcMain.handle('export:csv', async () => {
   return { success: false }
 })
 
+// IPC — hide / show notch
+ipcMain.handle('window:hide-notch', () => {
+  isHidden = true
+  if (autoHideTimer) clearTimeout(autoHideTimer)
+  win.setOpacity(0)
+  win.setIgnoreMouseEvents(true, { forward: true })
+})
+
+ipcMain.handle('window:show-notch', () => {
+  isHidden = false
+  if (autoHideTimer) clearTimeout(autoHideTimer)
+  win.setOpacity(1)
+  win.setIgnoreMouseEvents(false)
+})
+
 // IPC — open data folder
 ipcMain.handle('data:openFolder', () => {
   shell.openPath(path.dirname(storage.getDataFilePath()))
@@ -139,9 +173,18 @@ ipcMain.handle('data:openFolder', () => {
 app.whenReady().then(() => {
   createWindow()
 
-  // Global shortcut to toggle
+  // Global shortcut — shows notch if hidden, else toggles expand/collapse
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
-    if (win) win.webContents.send('shortcut:toggle')
+    if (!win) return
+    if (isHidden) {
+      isHidden = false
+      if (autoHideTimer) clearTimeout(autoHideTimer)
+      win.setOpacity(1)
+      win.setIgnoreMouseEvents(false)
+      win.webContents.send('notch:shown')
+    } else {
+      win.webContents.send('shortcut:toggle')
+    }
   })
 
   app.on('activate', () => {

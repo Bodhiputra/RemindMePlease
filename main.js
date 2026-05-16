@@ -7,9 +7,8 @@ const watcher = require('./src/watcher')
 
 process.env.RMP_DEV = 'true'
 
-const COLLAPSED_WIDTH = 360
+const NOTCH_WIDTH = 420
 const COLLAPSED_HEIGHT = 40
-const EXPANDED_WIDTH = 420
 const EXPANDED_MAX_HEIGHT = 600
 
 let win = null
@@ -17,17 +16,17 @@ let isExpanded = false
 let isHidden = false
 let autoHideTimer = null
 
-function getNotchPosition (width) {
+function getNotchPosition () {
   const display = screen.getPrimaryDisplay()
   const { width: sw } = display.bounds
-  return { x: Math.round(sw / 2 - width / 2), y: 0 }
+  return { x: Math.round(sw / 2 - NOTCH_WIDTH / 2), y: 0 }
 }
 
 function createWindow () {
-  const pos = getNotchPosition(COLLAPSED_WIDTH)
+  const pos = getNotchPosition()
 
   win = new BrowserWindow({
-    width: COLLAPSED_WIDTH,
+    width: NOTCH_WIDTH,
     height: COLLAPSED_HEIGHT,
     x: pos.x,
     y: pos.y,
@@ -80,16 +79,12 @@ ipcMain.handle('storage:write', (_, data) => storage.write(data))
 ipcMain.handle('window:expand', (_, contentHeight) => {
   isExpanded = true
   const height = Math.min(contentHeight + COLLAPSED_HEIGHT, EXPANDED_MAX_HEIGHT)
-  const pos = getNotchPosition(EXPANDED_WIDTH)
-  win.setSize(EXPANDED_WIDTH, height, true)
-  win.setPosition(pos.x, pos.y)
+  win.setSize(NOTCH_WIDTH, height, true)
 })
 
 ipcMain.handle('window:collapse', () => {
   isExpanded = false
-  const pos = getNotchPosition(COLLAPSED_WIDTH)
-  win.setSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT, true)
-  win.setPosition(pos.x, pos.y)
+  win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT, true)
 })
 
 // IPC — export

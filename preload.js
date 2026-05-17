@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('rmp', {
   // Notch visibility
   hideNotch: () => ipcRenderer.invoke('window:hide-notch'),
   showNotch: () => ipcRenderer.invoke('window:show-notch'),
+  hintExpand: () => ipcRenderer.invoke('window:hint-expand'),
+  hintCollapse: () => ipcRenderer.invoke('window:hint-collapse'),
 
   // Export
   exportJson: () => ipcRenderer.invoke('export:json'),
@@ -20,7 +22,7 @@ contextBridge.exposeInMainWorld('rmp', {
 
   // Events from main
   on: (channel, fn) => {
-    const allowed = ['storage:changed', 'notch:pulse', 'shortcut:toggle', 'notch:show-temp', 'notch:shown']
+    const allowed = ['storage:changed', 'notch:pulse', 'shortcut:toggle', 'notch:show-temp', 'notch:entering-hidden', 'notch:leaving-hidden']
     if (allowed.includes(channel)) ipcRenderer.on(channel, fn)
   },
   off: (channel, fn) => ipcRenderer.removeListener(channel, fn)

@@ -10,6 +10,8 @@ process.env.RMP_DEV = 'true'
 const NOTCH_WIDTH = 420
 const COLLAPSED_HEIGHT = 40
 const EXPANDED_MAX_HEIGHT = 600
+const HINT_HEIGHT = 6
+const HINT_EXPANDED_HEIGHT = 28
 
 let win = null
 let isExpanded = false
@@ -59,15 +61,16 @@ function showTemporarily () {
   if (!win) return
   if (autoHideTimer) clearTimeout(autoHideTimer)
   isHidden = false
-  win.setOpacity(1)
-  win.setIgnoreMouseEvents(false)
+  win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
   win.webContents.send('notch:show-temp')
+  win.webContents.send('notch:leaving-hidden')
   // Auto-hide again after 8s if user doesn't interact
   autoHideTimer = setTimeout(() => {
-    if (isHidden) return // user manually showed it, don't hide
-    win.setOpacity(0)
-    win.setIgnoreMouseEvents(true, { forward: true })
-    isHidden = true
+    if (!isHidden) {
+      isHidden = true
+      win.setSize(NOTCH_WIDTH, HINT_HEIGHT)
+      win.webContents.send('notch:entering-hidden')
+    }
   }, 8000)
 }
 
@@ -149,15 +152,31 @@ ipcMain.handle('export:csv', async () => {
 ipcMain.handle('window:hide-notch', () => {
   isHidden = true
   if (autoHideTimer) clearTimeout(autoHideTimer)
-  win.setOpacity(0)
-  win.setIgnoreMouseEvents(true, { forward: true })
+  win.setSize(NOTCH_WIDTH, HINT_HEIGHT)
+  win.setIgnoreMouseEvents(false)
+  win.webContents.send('notch:entering-hidden')
+  new (require('electron').Notification)({
+    title: 'RemindMePlease is hidden',
+    body: 'Press Cmd+Shift+Space to restore it'
+  }).show()
 })
 
 ipcMain.handle('window:show-notch', () => {
   isHidden = false
   if (autoHideTimer) clearTimeout(autoHideTimer)
-  win.setOpacity(1)
-  win.setIgnoreMouseEvents(false)
+  win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
+  win.webContents.send('notch:leaving-hidden')
+})
+
+// IPC — hover hint while hidden
+ipcMain.handle('window:hint-expand', () => {
+  if (!isHidden) return
+  win.setSize(NOTCH_WIDTH, HINT_EXPANDED_HEIGHT)
+})
+
+ipcMain.handle('window:hint-collapse', () => {
+  if (!isHidden) return
+  win.setSize(NOTCH_WIDTH, HINT_HEIGHT)
 })
 
 // IPC — open data folder
@@ -174,9 +193,8 @@ app.whenReady().then(() => {
     if (isHidden) {
       isHidden = false
       if (autoHideTimer) clearTimeout(autoHideTimer)
-      win.setOpacity(1)
-      win.setIgnoreMouseEvents(false)
-      win.webContents.send('notch:shown')
+      win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
+      win.webContents.send('notch:leaving-hidden')
     } else {
       win.webContents.send('shortcut:toggle')
     }

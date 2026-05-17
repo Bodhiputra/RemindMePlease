@@ -14,6 +14,7 @@ function ic (key) {
 let data = { tasks: [], categories: [], weeklyHistory: [], settings: {}, quickNote: '' }
 let currentView = 'master'
 let isExpanded = false
+let isHiddenMode = false
 let editingTaskId = null
 let dragSrcIndex = null
 let calendarDate = new Date()
@@ -39,16 +40,18 @@ async function init () {
     setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
   })
 
-  // Notification fired while hidden — show bar temporarily, pulse, then auto-hide via main
+  // Notification fired while hidden — pulse, main already restored height
   window.rmp.on('notch:show-temp', () => {
+    setHiddenMode(false)
     document.getElementById('notch-bar').classList.add('pulsing')
     setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
   })
 
-  // Shortcut pressed while hidden — notch is now visible again
-  window.rmp.on('notch:shown', () => {
-    // Nothing extra needed — main already made window visible
-  })
+  // Entering hidden mode — show hairline + hint
+  window.rmp.on('notch:entering-hidden', () => setHiddenMode(true))
+
+  // Leaving hidden mode — restore bar
+  window.rmp.on('notch:leaving-hidden', () => setHiddenMode(false))
 
   window.rmp.on('shortcut:toggle', () => togglePanel())
 }
@@ -689,6 +692,21 @@ function populateCategoryFilter () {
   sel.value = filterCategory
 }
 
+// ─── HIDDEN MODE ─────────────────────────────────────────────────────────────
+function setHiddenMode (hidden) {
+  isHiddenMode = hidden
+  const bar = document.getElementById('notch-bar')
+  const hint = document.getElementById('hidden-hint')
+  if (hidden) {
+    bar.style.display = 'none'
+    hint.classList.add('visible')
+    if (isExpanded) collapsePanel()
+  } else {
+    bar.style.display = ''
+    hint.classList.remove('visible')
+  }
+}
+
 // ─── EVENTS ───────────────────────────────────────────────────────────────────
 function setupEvents () {
   // Notch bar click
@@ -698,12 +716,11 @@ function setupEvents () {
     togglePanel()
   })
 
-  // Hide notch
-  document.getElementById('btn-hide').addEventListener('click', e => {
-    e.stopPropagation()
-    if (isExpanded) collapsePanel()
-    window.rmp.hideNotch()
-  })
+  // Hidden hint — hover to expand hairline, click to restore
+  const hint = document.getElementById('hidden-hint')
+  hint.addEventListener('mouseenter', () => { if (isHiddenMode) window.rmp.hintExpand() })
+  hint.addEventListener('mouseleave', () => { if (isHiddenMode) window.rmp.hintCollapse() })
+  hint.addEventListener('click', () => { if (isHiddenMode) window.rmp.showNotch() })
 
   // View tabs
   document.querySelectorAll('.tab').forEach(tab => {

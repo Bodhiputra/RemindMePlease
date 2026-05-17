@@ -14,6 +14,7 @@ const HINT_HEIGHT = 6
 const HINT_EXPANDED_HEIGHT = 28
 
 let win = null
+let popupWin = null
 let isExpanded = false
 let isHidden = false
 let autoHideTimer = null
@@ -73,6 +74,59 @@ function showTemporarily () {
     }
   }, 8000)
 }
+
+// Popup window
+function createPopupWindow (view, taskId) {
+  if (popupWin && !popupWin.isDestroyed()) popupWin.close()
+
+  // Collapse main panel before popup appears
+  if (isExpanded) {
+    isExpanded = false
+    win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
+    win.webContents.send('panel:collapse-instant')
+  }
+
+  const pos = getNotchPosition()
+  const query = { view, ...(taskId ? { taskId } : {}) }
+
+  popupWin = new BrowserWindow({
+    width: NOTCH_WIDTH,
+    height: 100,
+    x: pos.x,
+    y: COLLAPSED_HEIGHT,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    movable: false,
+    focusable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  popupWin.setAlwaysOnTop(true, 'screen-saver')
+  popupWin.loadFile(path.join(__dirname, 'renderer', 'popup.html'), { query })
+
+  // Settings and quick-note close on blur; task-form requires explicit close
+  if (view !== 'task-form') {
+    popupWin.on('blur', () => { if (popupWin && !popupWin.isDestroyed()) popupWin.close() })
+  }
+
+  popupWin.on('closed', () => { popupWin = null })
+}
+
+ipcMain.handle('popup:open', (_, { view, taskId }) => createPopupWindow(view, taskId || null))
+ipcMain.handle('popup:close', () => { if (popupWin && !popupWin.isDestroyed()) popupWin.close() })
+ipcMain.handle('popup:resize', (_, height) => {
+  if (!popupWin || popupWin.isDestroyed()) return
+  popupWin.setSize(NOTCH_WIDTH, Math.min(Math.max(height, 80), 560), true)
+})
 
 // IPC — storage
 ipcMain.handle('storage:read', () => storage.read())

@@ -20,9 +20,14 @@ contextBridge.exposeInMainWorld('rmp', {
   exportCsv: () => ipcRenderer.invoke('export:csv'),
   openDataFolder: () => ipcRenderer.invoke('data:openFolder'),
 
+  // Popup window
+  openPopup: (view, taskId) => ipcRenderer.invoke('popup:open', { view, taskId: taskId || null }),
+  closePopup: () => ipcRenderer.invoke('popup:close'),
+  resizePopup: (height) => ipcRenderer.invoke('popup:resize', height),
+
   // Events from main
   on: (channel, fn) => {
-    const allowed = ['storage:changed', 'notch:pulse', 'shortcut:toggle', 'notch:show-temp', 'notch:entering-hidden', 'notch:leaving-hidden']
+    const allowed = ['storage:changed', 'notch:pulse', 'shortcut:toggle', 'notch:show-temp', 'notch:entering-hidden', 'notch:leaving-hidden', 'panel:collapse-instant']
     if (allowed.includes(channel)) ipcRenderer.on(channel, fn)
   },
   off: (channel, fn) => ipcRenderer.removeListener(channel, fn)

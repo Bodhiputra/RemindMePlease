@@ -15,7 +15,8 @@ const DEFAULT_DATA = {
   settings: {
     keyboardShortcut: 'CommandOrControl+Shift+Space',
     theme: 'dark',
-    defaultView: 'master'
+    defaultView: 'master',
+    useIcons: false
   },
   quickNote: ''
 }

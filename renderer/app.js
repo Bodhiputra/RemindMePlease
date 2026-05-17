@@ -1,3 +1,15 @@
+// ─── ICONS ───────────────────────────────────────────────────────────────────
+const ICONS = {
+  tasks: '●', urgent: '⚠', overdue: '⚠', dueToday: '📅',
+  inProgress: '⚙', agent: '🤖', recurring: '↺', note: '📝',
+  settings: '⚙', deadline: '📅', priority_urgent: '🔴',
+  priority_high: '🟡', priority_normal: '⚪', priority_low: '🔵'
+}
+
+function ic (key) {
+  return data.settings?.useIcons ? ICONS[key] + ' ' : ''
+}
+
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let data = { tasks: [], categories: [], weeklyHistory: [], settings: {}, quickNote: '' }
 let currentView = 'master'
@@ -13,6 +25,7 @@ let subtaskDraft = []
 async function init () {
   data = await window.rmp.read()
   renderBar()
+  applyIconMode()
   setupEvents()
 
   window.rmp.on('storage:changed', async () => {
@@ -41,6 +54,14 @@ async function init () {
 }
 
 // ─── BAR ──────────────────────────────────────────────────────────────────────
+function applyIconMode () {
+  const useIcons = data.settings?.useIcons
+  document.getElementById('btn-quick-note').textContent = useIcons ? '📝 Note' : 'Note'
+  document.getElementById('btn-settings').textContent = useIcons ? '⚙ Settings' : 'Settings'
+  document.querySelector('.quick-note-header span').textContent = useIcons ? '📝 Quick Note' : 'Quick Note'
+  document.getElementById('toggle-icons').checked = !!useIcons
+}
+
 function renderBar () {
   const active = data.tasks.filter(t => t.status !== 'archived')
   const done = active.filter(t => t.status === 'done').length
@@ -54,10 +75,10 @@ function renderBar () {
     return (d - now) / (1000 * 60 * 60 * 24) <= 2
   })
 
-  document.getElementById('bar-count').textContent = `${total} task${total !== 1 ? 's' : ''}`
+  document.getElementById('bar-count').textContent = `${ic('tasks')}${total} task${total !== 1 ? 's' : ''}`
   const urgentEl = document.getElementById('bar-urgent')
   if (urgent.length > 0) {
-    urgentEl.textContent = `${urgent.length} due`
+    urgentEl.textContent = `${ic('urgent')}${urgent.length} due`
     urgentEl.classList.remove('hidden')
   } else {
     urgentEl.classList.add('hidden')
@@ -190,17 +211,17 @@ function renderToday () {
   }
 
   if (overdue.length > 0) {
-    area.innerHTML += '<div class="section-header">Overdue</div>'
+    area.innerHTML += `<div class="section-header">${ic('overdue')}Overdue</div>`
     overdue.forEach(t => area.appendChild(buildTaskEl(t)))
   }
 
   if (today.length > 0) {
-    area.innerHTML += '<div class="section-header">Due Today</div>'
+    area.innerHTML += `<div class="section-header">${ic('dueToday')}Due Today</div>`
     today.forEach(t => area.appendChild(buildTaskEl(t)))
   }
 
   if (inProgress.length > 0) {
-    area.innerHTML += '<div class="section-header">In Progress</div>'
+    area.innerHTML += `<div class="section-header">${ic('inProgress')}In Progress</div>`
     inProgress.forEach(t => area.appendChild(buildTaskEl(t)))
   }
 }
@@ -354,12 +375,12 @@ function buildTaskEl (task, idx) {
     else if (diff === 1) { cls = 'deadline soon'; label = 'tomorrow' }
     else if (diff <= 3) { cls = 'deadline soon'; label = `${diff}d left` }
     else label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    deadlineTag = `<span class="tag ${cls}">${label}</span>`
+    deadlineTag = `<span class="tag ${cls}">${ic('deadline')}${label}</span>`
   }
 
   // Agent tag
   const agentTag = task.addedBy && task.addedBy !== 'user'
-    ? `<span class="tag agent">via ${task.addedBy}</span>` : ''
+    ? `<span class="tag agent">${ic('agent')}via ${task.addedBy}</span>` : ''
 
   // Category tag
   const catTag = task.category
@@ -371,7 +392,7 @@ function buildTaskEl (task, idx) {
 
   // Recurring tag
   const recTag = task.recurring && task.recurring.enabled
-    ? `<span class="tag recurring">${task.recurring.interval}</span>` : ''
+    ? `<span class="tag recurring">${ic('recurring')}${task.recurring.interval}</span>` : ''
 
   // Subtask progress
   let subtaskHTML = ''
@@ -737,6 +758,14 @@ function setupEvents () {
     sp.classList.toggle('hidden')
     if (!isOpen) renderCategoryList()
     updateExpandHeight()
+  })
+
+  document.getElementById('toggle-icons').addEventListener('change', e => {
+    data.settings.useIcons = e.target.checked
+    save()
+    applyIconMode()
+    renderBar()
+    if (isExpanded) renderCurrentView()
   })
 
   document.getElementById('btn-close-settings').addEventListener('click', e => {

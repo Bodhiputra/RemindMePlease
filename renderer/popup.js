@@ -193,10 +193,11 @@ function renderTaskForm (root, taskId) {
         </div>
 
         <div class="form-row">
-          <select id="form-category" class="form-select">
-            <option value="">No category</option>
-            ${cats.map(c => `<option value="${escHtml(c)}" ${task?.category === c ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}
-          </select>
+          <input id="form-category" type="text" class="form-input" placeholder="Category"
+            value="${escHtml(task?.category || '')}" list="category-options" autocomplete="off" />
+          <datalist id="category-options">
+            ${cats.map(c => `<option value="${escHtml(c)}">`).join('')}
+          </datalist>
           <input id="form-deadline" type="date" class="form-input" value="${dlVal}" />
         </div>
 
@@ -340,11 +341,16 @@ function saveForm (existingTask) {
   const recurring    = document.getElementById('form-recurring').checked
   const interval     = document.getElementById('form-recurring-interval').value
 
+  const category = document.getElementById('form-category').value.trim()
+  if (category && !data.categories.includes(category)) {
+    data.categories.push(category)
+  }
+
   const taskData = {
     title,
     status:   document.getElementById('form-status').value,
     priority: document.getElementById('form-priority').value,
-    category: document.getElementById('form-category').value,
+    category,
     deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null,
     notes:    document.getElementById('form-notes').value.trim(),
     subtasks: subtaskDraft.filter(s => s.title.trim()),

@@ -85,9 +85,13 @@ html, body {
 .hide-btn {
   font-size: 16px;
   color: #2a2a2a;
-  margin-left: 2px;
+  margin-left: auto;
 }
 .hide-btn:hover { color: var(--text-muted); }
+
+.toggle-btn {
+  font-size: 13px;
+}
 
 /* Pulse animation on notification */
 @keyframes pulse {

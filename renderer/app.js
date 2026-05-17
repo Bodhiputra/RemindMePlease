@@ -54,10 +54,10 @@ function renderBar () {
     return (d - now) / (1000 * 60 * 60 * 24) <= 2
   })
 
-  document.getElementById('bar-count').textContent = `● ${total}`
+  document.getElementById('bar-count').textContent = `${total} task${total !== 1 ? 's' : ''}`
   const urgentEl = document.getElementById('bar-urgent')
   if (urgent.length > 0) {
-    urgentEl.textContent = `⚠ ${urgent.length} due`
+    urgentEl.textContent = `${urgent.length} due`
     urgentEl.classList.remove('hidden')
   } else {
     urgentEl.classList.add('hidden')
@@ -190,17 +190,17 @@ function renderToday () {
   }
 
   if (overdue.length > 0) {
-    area.innerHTML += '<div class="section-header">⚠ Overdue</div>'
+    area.innerHTML += '<div class="section-header">Overdue</div>'
     overdue.forEach(t => area.appendChild(buildTaskEl(t)))
   }
 
   if (today.length > 0) {
-    area.innerHTML += '<div class="section-header">📅 Due Today</div>'
+    area.innerHTML += '<div class="section-header">Due Today</div>'
     today.forEach(t => area.appendChild(buildTaskEl(t)))
   }
 
   if (inProgress.length > 0) {
-    area.innerHTML += '<div class="section-header">⚙ In Progress</div>'
+    area.innerHTML += '<div class="section-header">In Progress</div>'
     inProgress.forEach(t => area.appendChild(buildTaskEl(t)))
   }
 }
@@ -350,16 +350,16 @@ function buildTaskEl (task, idx) {
     let cls = 'deadline'
     let label = ''
     if (diff < 0) { cls = 'deadline overdue'; label = `${Math.abs(diff)}d overdue` }
-    else if (diff === 0) { cls = 'deadline soon'; label = 'today' }
+    else if (diff === 0) { cls = 'deadline soon'; label = 'due today' }
     else if (diff === 1) { cls = 'deadline soon'; label = 'tomorrow' }
-    else if (diff <= 3) { cls = 'deadline soon'; label = `${diff}d` }
+    else if (diff <= 3) { cls = 'deadline soon'; label = `${diff}d left` }
     else label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    deadlineTag = `<span class="tag ${cls}">📅 ${label}</span>`
+    deadlineTag = `<span class="tag ${cls}">${label}</span>`
   }
 
   // Agent tag
   const agentTag = task.addedBy && task.addedBy !== 'user'
-    ? `<span class="tag agent">🤖 ${task.addedBy}</span>` : ''
+    ? `<span class="tag agent">via ${task.addedBy}</span>` : ''
 
   // Category tag
   const catTag = task.category
@@ -371,7 +371,7 @@ function buildTaskEl (task, idx) {
 
   // Recurring tag
   const recTag = task.recurring && task.recurring.enabled
-    ? `<span class="tag recurring">↺ ${task.recurring.interval}</span>` : ''
+    ? `<span class="tag recurring">${task.recurring.interval}</span>` : ''
 
   // Subtask progress
   let subtaskHTML = ''

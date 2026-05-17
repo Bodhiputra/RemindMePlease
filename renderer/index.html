@@ -10,11 +10,11 @@
 
   <!-- COLLAPSED BAR -->
   <div id="notch-bar" class="notch-bar">
-    <span id="bar-count" class="bar-stat">● 0</span>
-    <span id="bar-urgent" class="bar-stat urgent hidden">⚠ 0</span>
+    <span id="bar-count" class="bar-stat">0 tasks</span>
+    <span id="bar-urgent" class="bar-stat urgent hidden">0 due</span>
     <span id="bar-progress" class="bar-stat muted">0%</span>
-    <button id="btn-toggle" class="bar-btn" title="Open (Cmd+Shift+Space)">▾</button>
     <button id="btn-hide" class="bar-btn hide-btn" title="Hide notch (Cmd+Shift+Space to restore)">—</button>
+    <button id="btn-toggle" class="bar-btn toggle-btn" title="Open (Cmd+Shift+Space)">▾</button>
   </div>
 
   <!-- EXPANDED PANEL -->
@@ -30,7 +30,7 @@
 
     <!-- Search -->
     <div class="search-row">
-      <input id="search-input" type="text" placeholder="🔍 Search tasks..." class="search-input" />
+      <input id="search-input" type="text" placeholder="Search tasks..." class="search-input" />
       <select id="filter-category" class="filter-select">
         <option value="">All</option>
       </select>
@@ -42,7 +42,7 @@
     <!-- Quick note panel -->
     <div id="quick-note-panel" class="quick-note-panel hidden">
       <div class="quick-note-header">
-        <span>📝 Quick Note</span>
+        <span>Quick Note</span>
         <button id="btn-close-note" class="icon-btn">✕</button>
       </div>
       <textarea id="quick-note-text" class="quick-note-text" placeholder="Jot anything down..."></textarea>
@@ -51,9 +51,9 @@
     <!-- Footer -->
     <div class="panel-footer">
       <button id="btn-add" class="footer-btn primary">+ Task</button>
-      <button id="btn-quick-note" class="footer-btn icon-only" title="Quick note">📝</button>
+      <button id="btn-quick-note" class="footer-btn small" title="Quick note">Note</button>
       <div class="spacer"></div>
-      <button id="btn-settings" class="footer-btn icon-only" title="Settings">⚙</button>
+      <button id="btn-settings" class="footer-btn small" title="Settings">Settings</button>
     </div>
 
     <!-- Settings Panel -->
@@ -106,10 +106,10 @@
             <option value="done">Done</option>
           </select>
           <select id="form-priority" class="form-select">
-            <option value="urgent">🔴 Urgent</option>
-            <option value="high">🟡 High</option>
-            <option value="normal">⚪ Normal</option>
-            <option value="low">🔵 Low</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="normal">Normal</option>
+            <option value="low">Low</option>
           </select>
         </div>
 

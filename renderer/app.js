@@ -61,7 +61,7 @@ function applyIconMode () {
   const useIcons = data.settings?.useIcons
   document.getElementById('btn-quick-note').textContent = useIcons ? '📝 Note' : 'Note'
   document.getElementById('btn-settings').textContent = useIcons ? '⚙ Settings' : 'Settings'
-  document.querySelector('.quick-note-header span').textContent = useIcons ? '📝 Quick Note' : 'Quick Note'
+  document.getElementById('quick-note-label').textContent = useIcons ? '📝 Quick Note' : 'Quick Note'
   document.getElementById('toggle-icons').checked = !!useIcons
 }
 
@@ -97,24 +97,34 @@ function togglePanel () {
 
 function expandPanel () {
   isExpanded = true
-  document.getElementById('panel').classList.remove('hidden')
+  const panel = document.getElementById('panel')
+  panel.classList.remove('hidden')
+  panel.classList.remove('panel-leaving')
+  panel.classList.add('panel-entering')
+  setTimeout(() => panel.classList.remove('panel-entering'), 180)
   document.getElementById('btn-toggle').textContent = '▴'
   renderCurrentView()
   populateCategoryFilter()
-  loadQuickNote()
-  setTimeout(() => {
-    const panel = document.getElementById('panel')
-    window.rmp.expand(panel.scrollHeight)
-  }, 50)
+  setTimeout(() => window.rmp.expand(panel.scrollHeight), 30)
 }
 
 function collapsePanel () {
   isExpanded = false
-  document.getElementById('panel').classList.add('hidden')
-  document.getElementById('task-form-overlay').classList.add('hidden')
-  document.getElementById('quick-note-panel').classList.add('hidden')
+  const panel = document.getElementById('panel')
   document.getElementById('btn-toggle').textContent = '▾'
-  window.rmp.collapse()
+  // Close all popups immediately
+  ;['task-form-overlay', 'settings-overlay', 'quick-note-overlay'].forEach(id => {
+    document.getElementById(id).classList.add('hidden')
+  })
+  editingTaskId = null
+  subtaskDraft = []
+  panel.classList.remove('panel-entering')
+  panel.classList.add('panel-leaving')
+  setTimeout(() => {
+    panel.classList.remove('panel-leaving')
+    panel.classList.add('hidden')
+    window.rmp.collapse()
+  }, 180)
 }
 
 // ─── VIEW ROUTING ─────────────────────────────────────────────────────────────
@@ -501,9 +511,8 @@ async function save () {
 // ─── FORM ─────────────────────────────────────────────────────────────────────
 function openForm (taskId) {
   editingTaskId = taskId || null
-  const overlay = document.getElementById('task-form-overlay')
-  overlay.classList.remove('hidden')
   subtaskDraft = []
+  openPopup('task-form-overlay')
 
   // Populate category dropdown
   const catSel = document.getElementById('form-category')
@@ -549,15 +558,14 @@ function openForm (taskId) {
   }
 
   renderSubtaskDraft()
-  updateExpandHeight()
   document.getElementById('form-name').focus()
 }
 
 function closeForm () {
-  document.getElementById('task-form-overlay').classList.add('hidden')
-  editingTaskId = null
-  subtaskDraft = []
-  updateExpandHeight()
+  closePopup('task-form-overlay', () => {
+    editingTaskId = null
+    subtaskDraft = []
+  })
 }
 
 function renderSubtaskDraft () {
@@ -692,6 +700,45 @@ function populateCategoryFilter () {
   sel.value = filterCategory
 }
 
+// ─── POPUP HELPERS ───────────────────────────────────────────────────────────
+function openPopup (id) {
+  const overlay = document.getElementById(id)
+  const card = overlay.querySelector('.popup-card')
+  card.classList.remove('leaving')
+  overlay.classList.remove('hidden')
+}
+
+function closePopup (id, cb) {
+  const overlay = document.getElementById(id)
+  const card = overlay.querySelector('.popup-card')
+  card.classList.add('leaving')
+  setTimeout(() => {
+    card.classList.remove('leaving')
+    overlay.classList.add('hidden')
+    if (cb) cb()
+  }, 150)
+}
+
+function openSettings () {
+  renderCategoryList()
+  openPopup('settings-overlay')
+}
+
+function closeSettings () {
+  closePopup('settings-overlay')
+}
+
+function openNote () {
+  loadQuickNote()
+  openPopup('quick-note-overlay')
+  setTimeout(() => document.getElementById('quick-note-text').focus(), 20)
+}
+
+function closeNote () {
+  saveQuickNote()
+  closePopup('quick-note-overlay')
+}
+
 // ─── HIDDEN MODE ─────────────────────────────────────────────────────────────
 function setHiddenMode (hidden) {
   isHiddenMode = hidden
@@ -752,30 +799,21 @@ function setupEvents () {
 
   document.getElementById('btn-quick-note').addEventListener('click', e => {
     e.stopPropagation()
-    const panel = document.getElementById('quick-note-panel')
-    panel.classList.toggle('hidden')
-    updateExpandHeight()
-    if (!panel.classList.contains('hidden')) document.getElementById('quick-note-text').focus()
+    openNote()
   })
 
-  document.getElementById('btn-close-note').addEventListener('click', e => {
-    e.stopPropagation()
-    saveQuickNote()
-    document.getElementById('quick-note-panel').classList.add('hidden')
-    updateExpandHeight()
-  })
-
+  document.getElementById('btn-close-note').addEventListener('click', closeNote)
   document.getElementById('quick-note-text').addEventListener('input', saveQuickNote)
+  document.querySelector('#quick-note-overlay .popup-backdrop').addEventListener('click', closeNote)
 
-  // Settings panel
+  // Settings popup
   document.getElementById('btn-settings').addEventListener('click', e => {
     e.stopPropagation()
-    const sp = document.getElementById('settings-panel')
-    const isOpen = !sp.classList.contains('hidden')
-    sp.classList.toggle('hidden')
-    if (!isOpen) renderCategoryList()
-    updateExpandHeight()
+    openSettings()
   })
+
+  document.getElementById('btn-close-settings').addEventListener('click', closeSettings)
+  document.querySelector('#settings-overlay .popup-backdrop').addEventListener('click', closeSettings)
 
   document.getElementById('toggle-icons').addEventListener('change', e => {
     data.settings.useIcons = e.target.checked
@@ -783,12 +821,6 @@ function setupEvents () {
     applyIconMode()
     renderBar()
     if (isExpanded) renderCurrentView()
-  })
-
-  document.getElementById('btn-close-settings').addEventListener('click', e => {
-    e.stopPropagation()
-    document.getElementById('settings-panel').classList.add('hidden')
-    updateExpandHeight()
   })
 
   document.getElementById('btn-add-category').addEventListener('click', e => {
@@ -823,12 +855,13 @@ function setupEvents () {
 
   document.getElementById('btn-hide-from-settings').addEventListener('click', e => {
     e.stopPropagation()
-    document.getElementById('settings-panel').classList.add('hidden')
-    collapsePanel()
-    window.rmp.hideNotch()
+    document.getElementById('settings-overlay').classList.add('hidden')
+    if (isExpanded) collapsePanel()
+    setTimeout(() => window.rmp.hideNotch(), isExpanded ? 200 : 0)
   })
 
   // Form events
+  document.querySelector('#task-form-overlay .popup-backdrop').addEventListener('click', closeForm)
   document.getElementById('btn-form-close').addEventListener('click', closeForm)
   document.getElementById('btn-form-cancel').addEventListener('click', closeForm)
   document.getElementById('btn-form-save').addEventListener('click', saveForm)
@@ -851,11 +884,15 @@ function setupEvents () {
   document.getElementById('form-recurring').addEventListener('change', toggleRecurringOptions)
   document.getElementById('form-recurring-interval').addEventListener('change', toggleRecurringDay)
 
-  // Close panel on Escape
+  // Escape closes popups in order, then collapses panel
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (!document.getElementById('task-form-overlay').classList.contains('hidden')) {
         closeForm()
+      } else if (!document.getElementById('settings-overlay').classList.contains('hidden')) {
+        closeSettings()
+      } else if (!document.getElementById('quick-note-overlay').classList.contains('hidden')) {
+        closeNote()
       } else if (isExpanded) {
         collapsePanel()
       }

@@ -131,6 +131,20 @@ html, body {
   border-color: var(--urgent);
 }
 
+/* ─── PANEL ANIMATIONS ─── */
+@keyframes panelEnter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes panelLeave {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-8px); }
+}
+
+.panel-entering { animation: panelEnter 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.panel-leaving  { animation: panelLeave 180ms cubic-bezier(0.4, 0, 1, 1) forwards; }
+
 /* ─── PANEL ─── */
 .panel {
   background: var(--bg);
@@ -494,20 +508,18 @@ html, body {
 }
 
 .quick-note-text {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: transparent;
+  border: none;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
-  padding: 8px 12px;
+  padding: 12px 14px;
   resize: none;
-  height: 68px;
+  height: 120px;
   outline: none;
   width: 100%;
+  line-height: 1.5;
 }
-
-.quick-note-text:focus { border-color: #3a3a3a; }
 
 /* ─── FOOTER ─── */
 .panel-footer {
@@ -552,36 +564,80 @@ html, body {
 .icon-btn:hover { color: var(--text); background: var(--bg3); }
 .icon-btn.small { font-size: 10px; }
 
-/* ─── OVERLAY / FORM ─── */
-.overlay {
+/* ─── POPUP OVERLAYS ─── */
+@keyframes popupEnter {
+  from { opacity: 0; transform: scale(0.97) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes popupLeave {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.97) translateY(-6px); }
+}
+
+.popup-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.85);
+  z-index: 200;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 14px 12px 12px;
-  z-index: 100;
+  flex-direction: column;
+  padding: 44px 8px 8px;
+}
+
+.popup-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.popup-card {
+  position: relative;
+  z-index: 1;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  animation: popupEnter 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.popup-card.popup-scrollable {
+  max-height: calc(100vh - 60px);
   overflow-y: auto;
 }
 
+.popup-card.popup-scrollable::-webkit-scrollbar { width: 3px; }
+.popup-card.popup-scrollable::-webkit-scrollbar-track { background: transparent; }
+.popup-card.popup-scrollable::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.popup-card.leaving {
+  animation: popupLeave 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Task form body (inside popup-card) */
 .task-form {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 16px 16px 14px;
-  width: 100%;
+  padding: 14px 14px 12px;
   display: flex;
   flex-direction: column;
   gap: 11px;
 }
 
-.form-header {
+/* Settings body (inside popup-card) */
+.settings-body {
+  padding: 14px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-weight: 600;
-  font-size: 13px;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .form-input, .form-select, .form-textarea {

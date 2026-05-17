@@ -23,93 +23,37 @@
 
   <!-- EXPANDED PANEL -->
   <div id="panel" class="panel hidden">
-
-    <!-- Views -->
     <div class="view-tabs">
       <button class="tab active" data-view="master">Master</button>
       <button class="tab" data-view="today">Today</button>
       <button class="tab" data-view="calendar">Calendar</button>
       <button class="tab" data-view="category">Category</button>
     </div>
-
-    <!-- Search -->
     <div class="search-row">
       <input id="search-input" type="text" placeholder="Search tasks..." class="search-input" />
       <select id="filter-category" class="filter-select">
         <option value="">All</option>
       </select>
     </div>
-
-    <!-- Task list area -->
     <div id="task-area" class="task-area"></div>
-
-    <!-- Quick note panel -->
-    <div id="quick-note-panel" class="quick-note-panel hidden">
-      <div class="quick-note-header">
-        <span>Quick Note</span>
-        <button id="btn-close-note" class="icon-btn">✕</button>
-      </div>
-      <textarea id="quick-note-text" class="quick-note-text" placeholder="Jot anything down..."></textarea>
-    </div>
-
-    <!-- Footer -->
     <div class="panel-footer">
       <button id="btn-add" class="footer-btn primary">+ Task</button>
-      <button id="btn-quick-note" class="footer-btn small" title="Quick note">Note</button>
+      <button id="btn-quick-note" class="footer-btn small">Note</button>
       <div class="spacer"></div>
-      <button id="btn-settings" class="footer-btn small" title="Settings">Settings</button>
+      <button id="btn-settings" class="footer-btn small">Settings</button>
     </div>
+  </div>
 
-    <!-- Settings Panel -->
-    <div id="settings-panel" class="settings-panel hidden">
-      <div class="settings-header">
-        <span>Settings</span>
-        <button id="btn-close-settings" class="icon-btn">✕</button>
+  <!-- TASK FORM POPUP -->
+  <div id="task-form-overlay" class="popup-overlay hidden">
+    <div class="popup-backdrop"></div>
+    <div class="popup-card popup-scrollable">
+      <div class="popup-header">
+        <span id="form-title">New Task</span>
+        <button id="btn-form-close" class="icon-btn">✕</button>
       </div>
-      <div class="settings-section">
-        <div class="settings-label">Keyboard shortcut</div>
-        <div class="settings-value">Cmd + Shift + Space</div>
-      </div>
-      <div class="settings-section">
-        <div class="settings-label">Display</div>
-        <label class="toggle-label">
-          <input id="toggle-icons" type="checkbox" />
-          <span>Show icons alongside text</span>
-        </label>
-      </div>
-      <div class="settings-section">
-        <div class="settings-label">Categories</div>
-        <div id="category-list" class="category-list"></div>
-        <div class="settings-row">
-          <input id="new-category-input" type="text" class="form-input" placeholder="New category..." />
-          <button id="btn-add-category" class="footer-btn small">Add</button>
-        </div>
-      </div>
-      <div class="settings-section">
-        <div class="settings-label">Export data</div>
-        <div class="settings-row">
-          <button id="btn-export-json" class="footer-btn small">Export JSON</button>
-          <button id="btn-export-csv" class="footer-btn small">Export CSV</button>
-          <button id="btn-open-folder" class="footer-btn small">Open folder</button>
-        </div>
-      </div>
-      <div class="settings-section">
-        <div class="settings-label">Notch visibility</div>
-        <button id="btn-hide-from-settings" class="footer-btn small">Hide notch</button>
-        <div class="settings-hint">When hidden, hover top-center or press Cmd+Shift+Space to restore</div>
-      </div>
-    </div>
-
-    <!-- Add / Edit Task Form -->
-    <div id="task-form-overlay" class="overlay hidden">
       <div class="task-form">
-        <div class="form-header">
-          <span id="form-title">New Task</span>
-          <button id="btn-form-close" class="icon-btn">✕</button>
-        </div>
-
         <input id="form-name" type="text" class="form-input" placeholder="Task title *" />
-
         <div class="form-row">
           <select id="form-status" class="form-select">
             <option value="todo">Todo</option>
@@ -123,15 +67,11 @@
             <option value="low">Low</option>
           </select>
         </div>
-
         <div class="form-row">
           <select id="form-category" class="form-select"></select>
           <input id="form-deadline" type="date" class="form-input" />
         </div>
-
         <textarea id="form-notes" class="form-textarea" placeholder="Notes (optional)"></textarea>
-
-        <!-- Subtasks -->
         <div class="subtasks-section">
           <div class="subtasks-header">
             <span>Subtasks</span>
@@ -139,8 +79,6 @@
           </div>
           <div id="subtask-list" class="subtask-list"></div>
         </div>
-
-        <!-- Reminder -->
         <div class="reminder-section">
           <select id="form-reminder-type" class="form-select">
             <option value="never">No reminder</option>
@@ -152,8 +90,6 @@
             <input id="form-reminder-days" type="number" min="1" max="30" value="1" class="form-input small" />
           </div>
         </div>
-
-        <!-- Recurring -->
         <div class="recurring-section">
           <label class="toggle-label">
             <input id="form-recurring" type="checkbox" />
@@ -178,7 +114,6 @@
             </div>
           </div>
         </div>
-
         <div class="form-actions">
           <button id="btn-form-delete" class="form-btn danger hidden">Delete</button>
           <button id="btn-form-cancel" class="form-btn">Cancel</button>
@@ -186,7 +121,63 @@
         </div>
       </div>
     </div>
+  </div>
 
+  <!-- SETTINGS POPUP -->
+  <div id="settings-overlay" class="popup-overlay hidden">
+    <div class="popup-backdrop"></div>
+    <div class="popup-card">
+      <div class="popup-header">
+        <span>Settings</span>
+        <button id="btn-close-settings" class="icon-btn">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-label">Keyboard shortcut</div>
+          <div class="settings-value">Cmd + Shift + Space</div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Display</div>
+          <label class="toggle-label">
+            <input id="toggle-icons" type="checkbox" />
+            <span>Show icons alongside text</span>
+          </label>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Categories</div>
+          <div id="category-list" class="category-list"></div>
+          <div class="settings-row">
+            <input id="new-category-input" type="text" class="form-input" placeholder="New category..." />
+            <button id="btn-add-category" class="footer-btn small">Add</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Export data</div>
+          <div class="settings-row">
+            <button id="btn-export-json" class="footer-btn small">Export JSON</button>
+            <button id="btn-export-csv" class="footer-btn small">Export CSV</button>
+            <button id="btn-open-folder" class="footer-btn small">Open folder</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Notch visibility</div>
+          <button id="btn-hide-from-settings" class="footer-btn small">Hide notch</button>
+          <div class="settings-hint">When hidden, hover top-center or press Cmd+Shift+Space to restore</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUICK NOTE POPUP -->
+  <div id="quick-note-overlay" class="popup-overlay hidden">
+    <div class="popup-backdrop"></div>
+    <div class="popup-card">
+      <div class="popup-header">
+        <span id="quick-note-label">Quick Note</span>
+        <button id="btn-close-note" class="icon-btn">✕</button>
+      </div>
+      <textarea id="quick-note-text" class="quick-note-text" placeholder="Jot anything down..."></textarea>
+    </div>
   </div>
 
   <script src="app.js"></script>

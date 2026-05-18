@@ -10,21 +10,18 @@
 
   <!-- COLLAPSED BAR -->
   <div id="notch-bar" class="notch-bar">
-    <span id="bar-count" class="bar-stat">0 tasks</span>
+    <div id="bar-carousel" class="bar-carousel">
+      <div id="carousel-text" class="carousel-text"></div>
+    </div>
     <span id="bar-urgent" class="bar-stat urgent hidden">0 due</span>
     <span id="bar-progress" class="bar-stat muted">0%</span>
     <button id="btn-toggle" class="bar-btn toggle-btn" title="Open (Cmd+Shift+Space)">▾</button>
   </div>
 
-  <!-- HIDDEN HINT -->
-  <div id="hidden-hint" class="hidden-hint">
-    <span class="hint-text">Cmd + Shift + Space</span>
-  </div>
-
   <!-- EXPANDED PANEL -->
   <div id="panel" class="panel hidden">
     <div class="view-tabs">
-      <button class="tab active" data-view="master">Master</button>
+      <button class="tab active" data-view="master">TodoList</button>
       <button class="tab" data-view="today">Today</button>
       <button class="tab" data-view="calendar">Calendar</button>
       <button class="tab" data-view="category">Category</button>

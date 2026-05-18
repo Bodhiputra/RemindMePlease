@@ -1,36 +1,26 @@
-// ─── ICONS ───────────────────────────────────────────────────────────────────
-const ICONS = {
-  tasks: '●', urgent: '⚠', overdue: '⚠', dueToday: '📅',
-  inProgress: '⚙', agent: '🤖', recurring: '↺',
-  deadline: '📅', priority_urgent: '🔴', priority_high: '🟡',
-  priority_normal: '⚪', priority_low: '🔵'
-}
-
-function ic (key) {
-  return data.settings?.useIcons ? ICONS[key] + ' ' : ''
-}
-
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let data = { tasks: [], categories: [], weeklyHistory: [], settings: {}, quickNote: '' }
 let currentView   = 'master'
 let isExpanded    = false
-let isHiddenMode  = false
-let dragSrcIndex  = null
-let calendarDate  = new Date()
+let popupOpen     = false
+let dragSrcId     = null
+let calendarDate        = new Date()
+let calendarSelectedDay = null
 let searchQuery   = ''
 let filterCategory = ''
+let carouselTimer = null
+let carouselIdx   = 0
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init () {
   data = await window.rmp.read()
   renderBar()
-  applyIconMode()
   setupEvents()
+  setupMousePassthrough()
 
   window.rmp.on('storage:changed', async () => {
     data = await window.rmp.read()
     renderBar()
-    applyIconMode()
     if (isExpanded) renderCurrentView()
   })
 
@@ -39,32 +29,27 @@ async function init () {
     setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
   })
 
-  window.rmp.on('notch:show-temp', () => {
-    setHiddenMode(false)
-    document.getElementById('notch-bar').classList.add('pulsing')
-    setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
-  })
-
-  window.rmp.on('notch:entering-hidden', () => setHiddenMode(true))
-  window.rmp.on('notch:leaving-hidden',  () => setHiddenMode(false))
   window.rmp.on('shortcut:toggle', () => togglePanel())
 
   // Popup opened: collapse panel instantly (no animation)
   window.rmp.on('panel:collapse-instant', () => {
     isExpanded = false
+    popupOpen = true
     const panel = document.getElementById('panel')
     panel.classList.remove('panel-entering', 'panel-leaving')
     panel.classList.add('hidden')
+    document.getElementById('notch-bar').classList.remove('panel-open')
     document.getElementById('btn-toggle').textContent = '▾'
   })
+
+  // Popup committed (save/delete): re-expand panel
+  window.rmp.on('panel:reopen', () => { popupOpen = false; expandPanel() })
+
+  // Popup dismissed (blur/escape): just clear flag
+  window.rmp.on('popup:dismissed', () => { popupOpen = false })
 }
 
 // ─── BAR ──────────────────────────────────────────────────────────────────────
-function applyIconMode () {
-  const useIcons = data.settings?.useIcons
-  document.getElementById('btn-quick-note').textContent = useIcons ? '📝 Note' : 'Note'
-  document.getElementById('btn-settings').textContent   = useIcons ? '⚙ Settings' : 'Settings'
-}
 
 function renderBar () {
   const active = data.tasks.filter(t => t.status !== 'archived')
@@ -78,19 +63,22 @@ function renderBar () {
     return (new Date(t.deadline) - now) / (1000 * 60 * 60 * 24) <= 2
   })
 
-  document.getElementById('bar-count').textContent = `${ic('tasks')}${total} task${total !== 1 ? 's' : ''}`
   const urgentEl = document.getElementById('bar-urgent')
   if (urgent.length > 0) {
-    urgentEl.textContent = `${ic('urgent')}${urgent.length} due`
+    urgentEl.textContent = `${urgent.length} due`
     urgentEl.classList.remove('hidden')
   } else {
     urgentEl.classList.add('hidden')
   }
-  document.getElementById('bar-progress').textContent = `${pct}%`
+  const progressText = total > 0 ? `${pct}% · ${done}/${total}` : '—'
+  document.getElementById('bar-progress').textContent = progressText
+  window.rmp.setTrayTitle(total > 0 ? ` ${pct}%` : '')
+  startCarousel()
 }
 
 // ─── TOGGLE ───────────────────────────────────────────────────────────────────
 function togglePanel () {
+  if (popupOpen) { window.rmp.closePopup(); return }
   if (isExpanded) collapsePanel()
   else expandPanel()
 }
@@ -98,7 +86,9 @@ function togglePanel () {
 function expandPanel () {
   isExpanded = true
   window.rmp.closePopup()
-  const panel = document.getElementById('panel')
+  const panel   = document.getElementById('panel')
+  const notch   = document.getElementById('notch-bar')
+  notch.classList.add('panel-open')
   panel.classList.remove('hidden', 'panel-leaving')
   panel.classList.add('panel-entering')
   setTimeout(() => panel.classList.remove('panel-entering'), 180)
@@ -112,12 +102,14 @@ function collapsePanel () {
   isExpanded = false
   window.rmp.closePopup()
   const panel = document.getElementById('panel')
+  const notch = document.getElementById('notch-bar')
   document.getElementById('btn-toggle').textContent = '▾'
   panel.classList.remove('panel-entering')
   panel.classList.add('panel-leaving')
   setTimeout(() => {
     panel.classList.remove('panel-leaving')
     panel.classList.add('hidden')
+    notch.classList.remove('panel-open')
     window.rmp.collapse()
   }, 180)
 }
@@ -153,33 +145,18 @@ function renderMaster () {
   }
   if (filterCategory) tasks = tasks.filter(t => t.category === filterCategory)
 
-  const priorityOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
   tasks.sort((a, b) => {
     if (a.status === 'done' && b.status !== 'done') return 1
     if (b.status === 'done' && a.status !== 'done') return -1
-    const pa = priorityOrder[a.priority] ?? 2
-    const pb = priorityOrder[b.priority] ?? 2
-    if (pa !== pb) return pa - pb
-    if (a.deadline && b.deadline) return new Date(a.deadline) - new Date(b.deadline)
-    if (a.deadline) return -1
-    if (b.deadline) return 1
     return (a.order ?? 0) - (b.order ?? 0)
   })
 
-  const done  = data.tasks.filter(t => {
-    if (t.status !== 'done' || !t.completedAt) return false
-    return new Date(t.completedAt) >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-  }).length
-  const total = data.tasks.filter(t => t.status !== 'archived').length
-  const pct   = total > 0 ? Math.round((done / total) * 100) : 0
-
-  area.innerHTML = `<div class="progress-ring">This week: <span>${pct}% complete</span> (${done}/${total})</div>`
-
   if (tasks.length === 0) {
-    area.innerHTML += '<div class="empty-msg">No tasks yet — add one below</div>'
+    area.innerHTML = '<div class="empty-msg">No tasks yet — add one below</div>'
     return
   }
-  tasks.forEach((task, i) => area.appendChild(buildTaskEl(task, i)))
+  area.innerHTML = ''
+  tasks.forEach(task => area.appendChild(buildTaskEl(task)))
 }
 
 // ─── TODAY VIEW ───────────────────────────────────────────────────────────────
@@ -187,24 +164,31 @@ function renderToday () {
   const area = document.getElementById('task-area')
   const now  = new Date(); now.setHours(0, 0, 0, 0)
 
-  const overdue    = data.tasks.filter(t => !['done','archived'].includes(t.status) && t.deadline && new Date(t.deadline) < now)
-  const today      = data.tasks.filter(t => {
+  const overdue = data.tasks.filter(t => !['done','archived'].includes(t.status) && t.deadline && new Date(t.deadline) < now)
+  const today   = data.tasks.filter(t => {
     if (['done','archived'].includes(t.status) || !t.deadline) return false
     const d = new Date(t.deadline); d.setHours(0,0,0,0)
     return d.getTime() === now.getTime()
   })
-  const inProgress = data.tasks.filter(t => t.status === 'in-progress')
+  const overdueIds = new Set(overdue.map(t => t.id))
+  const todayIds   = new Set(today.map(t => t.id))
+  const pinned = data.tasks.filter(t =>
+    t.pinnedToToday &&
+    !['done','archived'].includes(t.status) &&
+    !overdueIds.has(t.id) &&
+    !todayIds.has(t.id)
+  )
 
   area.innerHTML = ''
 
-  if (!overdue.length && !today.length && !inProgress.length) {
-    area.innerHTML = '<div class="empty-msg">You\'re all clear today 🎉</div>'
+  if (!overdue.length && !today.length && !pinned.length) {
+    area.innerHTML = '<div class="empty-msg">You\'re all clear today</div>'
     return
   }
 
-  if (overdue.length)    { area.innerHTML += `<div class="section-header">${ic('overdue')}Overdue</div>`; overdue.forEach(t => area.appendChild(buildTaskEl(t))) }
-  if (today.length)      { area.innerHTML += `<div class="section-header">${ic('dueToday')}Due Today</div>`; today.forEach(t => area.appendChild(buildTaskEl(t))) }
-  if (inProgress.length) { area.innerHTML += `<div class="section-header">${ic('inProgress')}In Progress</div>`; inProgress.forEach(t => area.appendChild(buildTaskEl(t))) }
+  if (overdue.length) { area.innerHTML += `<div class="section-header">Overdue</div>`; overdue.forEach(t => area.appendChild(buildTaskEl(t))) }
+  if (today.length)   { area.innerHTML += `<div class="section-header">Due Today</div>`; today.forEach(t => area.appendChild(buildTaskEl(t))) }
+  if (pinned.length)  { area.innerHTML += `<div class="section-header">Pinned to Today</div>`; pinned.forEach(t => area.appendChild(buildTaskEl(t))) }
 }
 
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
@@ -214,30 +198,65 @@ function renderCalendar () {
   const month = calendarDate.getMonth()
   const monthName = calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
+  // tasksByDate[day] = { due: [], doing: [] }
+  // "due"   = tasks whose deadline falls on this date
+  // "doing" = tasks pinned to today (only on today's date)
   const tasksByDate = {}
+  const ensure = key => { if (!tasksByDate[key]) tasksByDate[key] = { due: [], doing: [] } }
+
   data.tasks.forEach(t => {
     if (!t.deadline || t.status === 'archived') return
     const d = new Date(t.deadline)
     if (d.getFullYear() === year && d.getMonth() === month) {
       const key = d.getDate()
-      if (!tasksByDate[key]) tasksByDate[key] = []
-      tasksByDate[key].push(t)
+      ensure(key)
+      tasksByDate[key].due.push(t)
     }
   })
 
+  const today    = new Date()
+  const todayKey = today.getDate()
+  if (today.getFullYear() === year && today.getMonth() === month) {
+    data.tasks.forEach(t => {
+      if (!t.pinnedToToday || t.status === 'archived') return
+      ensure(todayKey)
+      // avoid duplicate if task also has today as its deadline
+      if (!tasksByDate[todayKey].due.find(x => x.id === t.id)) {
+        tasksByDate[todayKey].doing.push(t)
+      }
+    })
+  }
+
   const firstDay    = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const today       = new Date()
 
   const dayLabels = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<div class="cal-day-label">${d}</div>`).join('')
   let cells = ''
   for (let i = 0; i < firstDay; i++) cells += '<div class="cal-day other-month"></div>'
   for (let d = 1; d <= daysInMonth; d++) {
-    const isToday  = today.getDate() === d && today.getMonth() === month && today.getFullYear() === year
-    const tasks    = tasksByDate[d] || []
-    const hasUrgent = tasks.some(t => t.priority === 'urgent')
-    cells += `<div class="cal-day${isToday ? ' today' : ''}${tasks.length ? ' has-tasks' : ''}${hasUrgent ? ' has-urgent' : ''}"
-      data-day="${d}" title="${tasks.map(t => t.title).join(', ')}">${d}</div>`
+    const isToday    = today.getDate() === d && today.getMonth() === month && today.getFullYear() === year
+    const isSelected = calendarSelectedDay === d
+    const entry      = tasksByDate[d]
+    const allTasks   = entry ? [...entry.due, ...entry.doing] : []
+    const hasOverdue = entry?.due.some(t => t.status !== 'done' && new Date(t.deadline) < today)
+    const hasDoing   = entry?.doing.length > 0
+    const allDone    = allTasks.length > 0 && allTasks.every(t => t.status === 'done')
+
+    let countHtml = ''
+    if (allTasks.length) {
+      const cls = hasOverdue ? 'overdue' : allDone ? 'done' : hasDoing ? 'doing' : 'pending'
+      countHtml = `<span class="cal-task-count ${cls}">${allTasks.length}</span>`
+    }
+
+    let cls = 'cal-day'
+    if (isToday)       cls += ' today'
+    if (isSelected)    cls += ' selected'
+    if (allTasks.length) cls += ' has-tasks'
+
+    cells += `<div class="${cls}" data-day="${d}">
+      <span class="cal-date">${d}</span>
+      ${countHtml}
+    </div>`
   }
 
   area.innerHTML = `
@@ -248,39 +267,78 @@ function renderCalendar () {
         <button class="cal-nav" id="cal-next">›</button>
       </div>
       <div class="calendar-grid">${dayLabels}${cells}</div>
+      <div id="cal-day-panel" class="cal-day-panel"></div>
     </div>
   `
 
-  document.getElementById('cal-prev').addEventListener('click', e => { e.stopPropagation(); calendarDate.setMonth(month - 1); renderCalendar() })
-  document.getElementById('cal-next').addEventListener('click', e => { e.stopPropagation(); calendarDate.setMonth(month + 1); renderCalendar() })
+  document.getElementById('cal-prev').addEventListener('click', e => {
+    e.stopPropagation()
+    calendarSelectedDay = null
+    calendarDate.setMonth(month - 1)
+    renderCalendar()
+  })
+  document.getElementById('cal-next').addEventListener('click', e => {
+    e.stopPropagation()
+    calendarSelectedDay = null
+    calendarDate.setMonth(month + 1)
+    renderCalendar()
+  })
 
   area.querySelectorAll('.cal-day[data-day]').forEach(el => {
     el.addEventListener('click', () => {
-      const tasks = tasksByDate[parseInt(el.dataset.day)] || []
-      if (tasks.length) showCalendarDayTasks(tasks, `${monthName} ${el.dataset.day}`)
+      const day = parseInt(el.dataset.day)
+      if (calendarSelectedDay === day) {
+        calendarSelectedDay = null
+        renderCalendar()
+        return
+      }
+      calendarSelectedDay = day
+      const entry = tasksByDate[day] || { due: [], doing: [] }
+      const label = new Date(year, month, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      showCalendarDayPanel(entry, label)
+      area.querySelectorAll('.cal-day').forEach(c => c.classList.remove('selected'))
+      el.classList.add('selected')
     })
   })
+
+  if (calendarSelectedDay !== null && tasksByDate[calendarSelectedDay] !== undefined) {
+    const entry = tasksByDate[calendarSelectedDay] || { due: [], doing: [] }
+    const label = new Date(year, month, calendarSelectedDay).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    showCalendarDayPanel(entry, label)
+  }
 }
 
-function showCalendarDayTasks (tasks, label) {
-  const area = document.getElementById('task-area')
-  const existing = area.querySelector('.cal-day-tasks')
-  if (existing) existing.remove()
+function showCalendarDayPanel (entry, label) {
+  const panel = document.getElementById('cal-day-panel')
+  if (!panel) return
 
-  const el = document.createElement('div')
-  el.className = 'cal-day-tasks'
-  el.innerHTML = `<div class="section-header">${label}</div>`
-  tasks.forEach(t => el.appendChild(buildTaskEl(t)))
+  const { due = [], doing = [] } = entry
+  panel.innerHTML = `<div class="cal-panel-header">${label}</div>`
 
-  const backBtn = document.createElement('button')
-  backBtn.className = 'footer-btn small'
-  backBtn.textContent = '← Back'
-  backBtn.style.margin = '6px 10px'
-  backBtn.addEventListener('click', () => renderCalendar())
-  el.appendChild(backBtn)
+  if (!due.length && !doing.length) {
+    panel.innerHTML += '<div class="cal-panel-empty">No tasks scheduled</div>'
+    updateExpandHeight()
+    return
+  }
 
-  area.innerHTML = ''
-  area.appendChild(el)
+  if (due.length) {
+    const section = document.createElement('div')
+    section.innerHTML = `<div class="cal-panel-section-label deadline-label">Deadline</div>`
+    const list = document.createElement('div')
+    due.forEach(t => list.appendChild(buildTaskEl(t)))
+    section.appendChild(list)
+    panel.appendChild(section)
+  }
+
+  if (doing.length) {
+    const section = document.createElement('div')
+    section.innerHTML = `<div class="cal-panel-section-label doing-label">Doing Today</div>`
+    const list = document.createElement('div')
+    doing.forEach(t => list.appendChild(buildTaskEl(t)))
+    section.appendChild(list)
+    panel.appendChild(section)
+  }
+
   updateExpandHeight()
 }
 
@@ -308,16 +366,14 @@ function renderCategory () {
 }
 
 // ─── TASK ELEMENT ─────────────────────────────────────────────────────────────
-function buildTaskEl (task, idx) {
+function buildTaskEl (task) {
   const el = document.createElement('div')
   el.className = 'task-item'
   el.dataset.id = task.id
   el.draggable = true
 
   const isDone   = task.status === 'done'
-  const isStrike = task.strikethrough
-  const statusIcon  = isDone ? '✓' : (task.status === 'in-progress' ? '◐' : '')
-  const checkClass  = isDone ? 'done' : (task.status === 'in-progress' ? 'in-progress' : '')
+  const isStrike = isDone
 
   let deadlineTag = ''
   if (task.deadline) {
@@ -328,13 +384,12 @@ function buildTaskEl (task, idx) {
     else if (diff === 1) { cls = 'deadline soon';   label = 'tomorrow' }
     else if (diff <= 3)  { cls = 'deadline soon';   label = `${diff}d left` }
     else label = new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    deadlineTag = `<span class="tag ${cls}">${ic('deadline')}${label}</span>`
+    deadlineTag = `<span class="tag ${cls}">${label}</span>`
   }
 
-  const agentTag  = task.addedBy && task.addedBy !== 'user'  ? `<span class="tag agent">${ic('agent')}via ${task.addedBy}</span>` : ''
-  const catTag    = task.category                            ? `<span class="tag category">${task.category}</span>` : ''
-  const statusTag = task.status === 'in-progress'            ? `<span class="tag status-inprogress">In Progress</span>` : ''
-  const recTag    = task.recurring?.enabled                  ? `<span class="tag recurring">${ic('recurring')}${task.recurring.interval}</span>` : ''
+  const agentTag = task.addedBy && task.addedBy !== 'user' ? `<span class="tag agent">via ${task.addedBy}</span>` : ''
+  const catTag   = task.category                           ? `<span class="tag category">${task.category}</span>` : ''
+  const recTag   = task.recurring?.enabled                 ? `<span class="tag recurring">${task.recurring.interval}</span>` : ''
 
   let subtaskHTML = ''
   if (task.subtasks?.length) {
@@ -357,25 +412,39 @@ function buildTaskEl (task, idx) {
 
   el.innerHTML = `
     <div class="task-main">
-      <div class="task-check ${checkClass}" data-id="${task.id}">${statusIcon}</div>
-      <div class="priority-dot ${task.priority || 'normal'}"></div>
-      <span class="task-title ${isStrike ? 'strike' : ''} ${isDone ? 'done-text' : ''}">${escHtml(task.title)}</span>
+      <div class="task-check ${isDone ? 'done' : ''}" data-id="${task.id}"></div>
+      <span class="task-title ${isStrike ? 'strike' : ''}">${escHtml(task.title)}</span>
+      <button class="task-today-btn ${task.pinnedToToday ? 'pinned' : ''}">${task.pinnedToToday ? 'Today ✓' : 'Today'}</button>
     </div>
-    <div class="task-meta">${deadlineTag}${statusTag}${catTag}${agentTag}${recTag}</div>
+    <div class="task-meta">${deadlineTag}${catTag}${agentTag}${recTag}</div>
     ${subtaskHTML}
   `
 
   el.querySelector('.task-check').addEventListener('click', e => { e.stopPropagation(); cycleStatus(task.id) })
+  el.querySelector('.task-today-btn').addEventListener('click', e => {
+    e.stopPropagation()
+    task.pinnedToToday = !task.pinnedToToday
+    save()
+  })
   el.querySelectorAll('.subtask-inline-check').forEach(chk => {
     chk.addEventListener('click', e => { e.stopPropagation(); toggleSubtask(chk.dataset.taskId, chk.dataset.subId) })
   })
   el.addEventListener('click', () => openForm(task.id))
-  el.addEventListener('dragstart', () => { dragSrcIndex = idx; el.classList.add('dragging') })
-  el.addEventListener('dragend',   () => el.classList.remove('dragging'))
-  el.addEventListener('dragover',  e => e.preventDefault())
-  el.addEventListener('drop', () => {
-    if (dragSrcIndex !== null && dragSrcIndex !== idx) reorderTask(dragSrcIndex, idx)
-    dragSrcIndex = null
+  el.addEventListener('dragstart', () => { dragSrcId = task.id; el.classList.add('dragging') })
+  el.addEventListener('dragend',   () => {
+    el.classList.remove('dragging')
+    document.querySelectorAll('.task-item.drag-over').forEach(x => x.classList.remove('drag-over'))
+  })
+  el.addEventListener('dragover',  e => {
+    e.preventDefault()
+    document.querySelectorAll('.task-item.drag-over').forEach(x => x.classList.remove('drag-over'))
+    el.classList.add('drag-over')
+  })
+  el.addEventListener('drop', e => {
+    e.preventDefault()
+    el.classList.remove('drag-over')
+    if (dragSrcId && dragSrcId !== task.id) reorderTask(dragSrcId, task.id)
+    dragSrcId = null
   })
 
   return el
@@ -385,8 +454,8 @@ function buildTaskEl (task, idx) {
 function cycleStatus (id) {
   const task = data.tasks.find(t => t.id === id)
   if (!task) return
-  const cycle = { 'todo': 'in-progress', 'in-progress': 'done', 'done': 'todo' }
-  task.status = cycle[task.status] || 'todo'
+  task.status = task.status === 'done' ? 'todo' : 'done'
+  task.strikethrough = task.status === 'done'
   task.completedAt = task.status === 'done' ? new Date().toISOString() : null
   save()
 }
@@ -399,8 +468,11 @@ function toggleSubtask (taskId, subId) {
   save()
 }
 
-function reorderTask (fromIdx, toIdx) {
+function reorderTask (fromId, toId) {
   const active = data.tasks.filter(t => t.status !== 'archived')
+  const fromIdx = active.findIndex(t => t.id === fromId)
+  const toIdx   = active.findIndex(t => t.id === toId)
+  if (fromIdx === -1 || toIdx === -1) return
   const [moved] = active.splice(fromIdx, 1)
   active.splice(toIdx, 0, moved)
   active.forEach((t, i) => t.order = i)
@@ -427,31 +499,63 @@ function populateCategoryFilter () {
   sel.value = filterCategory
 }
 
-// ─── HIDDEN MODE ─────────────────────────────────────────────────────────────
-function setHiddenMode (hidden) {
-  isHiddenMode = hidden
-  const bar  = document.getElementById('notch-bar')
-  const hint = document.getElementById('hidden-hint')
-  if (hidden) {
-    bar.style.display = 'none'
-    hint.classList.add('visible')
-    if (isExpanded) collapsePanel()
-  } else {
-    bar.style.display = ''
-    hint.classList.remove('visible')
+// ─── CAROUSEL ────────────────────────────────────────────────────────────────
+function startCarousel () {
+  if (carouselTimer) clearInterval(carouselTimer)
+  const tasks = data.tasks.filter(t => t.status !== 'done' && t.status !== 'archived')
+  carouselIdx = 0
+  setCarouselText(tasks.length ? tasks[0].title : 'No tasks', false)
+  if (tasks.length > 1) {
+    carouselTimer = setInterval(() => {
+      carouselIdx = (carouselIdx + 1) % tasks.length
+      setCarouselText(tasks[carouselIdx].title, true)
+    }, 3000)
   }
 }
 
+function setCarouselText (text, animate) {
+  const el = document.getElementById('carousel-text')
+  if (!el) return
+  if (!animate) { el.textContent = text; el.style.animation = ''; return }
+  el.style.animation = 'carouselSlideOut 0.25s ease forwards'
+  setTimeout(() => {
+    el.textContent = text
+    el.style.animation = 'carouselSlideIn 0.25s ease forwards'
+  }, 260)
+}
+
 // ─── EVENTS ───────────────────────────────────────────────────────────────────
+function setupMousePassthrough () {
+  document.addEventListener('mousemove', e => {
+    const el = document.elementFromPoint(e.clientX, e.clientY)
+    const over = el && el !== document.documentElement && el !== document.body
+    window.rmp.ignoreMouse(!over)
+  })
+  document.addEventListener('mouseleave', () => window.rmp.ignoreMouse(true))
+}
+
 function setupEvents () {
   document.getElementById('notch-bar').addEventListener('click', togglePanel)
   document.getElementById('btn-toggle').addEventListener('click', e => { e.stopPropagation(); togglePanel() })
 
-  // Hidden hint
-  const hint = document.getElementById('hidden-hint')
-  hint.addEventListener('mouseenter', () => { if (isHiddenMode) window.rmp.hintExpand() })
-  hint.addEventListener('mouseleave', () => { if (isHiddenMode) window.rmp.hintCollapse() })
-  hint.addEventListener('click',      () => { if (isHiddenMode) window.rmp.showNotch() })
+  // Draggable notch
+  let dragging = false, dragStartX = 0, dragStartY = 0
+  const notchEl = document.getElementById('notch-bar')
+  notchEl.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.target.closest('button')) return
+    dragging = true
+    dragStartX = e.screenX
+    dragStartY = e.screenY
+  })
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return
+    const dx = e.screenX - dragStartX
+    const dy = e.screenY - dragStartY
+    dragStartX = e.screenX
+    dragStartY = e.screenY
+    window.rmp.moveWindow(dx, dy)
+  })
+  document.addEventListener('mouseup', () => { dragging = false })
 
   // View tabs
   document.querySelectorAll('.tab').forEach(tab => {

@@ -9,11 +9,9 @@ contextBridge.exposeInMainWorld('rmp', {
   expand: (height) => ipcRenderer.invoke('window:expand', height),
   collapse: () => ipcRenderer.invoke('window:collapse'),
 
-  // Notch visibility
-  hideNotch: () => ipcRenderer.invoke('window:hide-notch'),
-  showNotch: () => ipcRenderer.invoke('window:show-notch'),
-  hintExpand: () => ipcRenderer.invoke('window:hint-expand'),
-  hintCollapse: () => ipcRenderer.invoke('window:hint-collapse'),
+  // App
+  restartApp: () => ipcRenderer.invoke('app:restart'),
+  ignoreMouse: (ignore) => ipcRenderer.send('window:ignore-mouse', ignore),
 
   // Export
   exportJson: () => ipcRenderer.invoke('export:json'),
@@ -24,10 +22,13 @@ contextBridge.exposeInMainWorld('rmp', {
   openPopup: (view, taskId) => ipcRenderer.invoke('popup:open', { view, taskId: taskId || null }),
   closePopup: () => ipcRenderer.invoke('popup:close'),
   resizePopup: (height) => ipcRenderer.invoke('popup:resize', height),
+  commitPopup: () => ipcRenderer.invoke('popup:commit'),
+  moveWindow: (dx, dy) => ipcRenderer.send('window:move', { dx, dy }),
+  setTrayTitle: (title) => ipcRenderer.send('tray:setTitle', title),
 
   // Events from main
   on: (channel, fn) => {
-    const allowed = ['storage:changed', 'notch:pulse', 'shortcut:toggle', 'notch:show-temp', 'notch:entering-hidden', 'notch:leaving-hidden', 'panel:collapse-instant']
+    const allowed = ['storage:changed', 'notch:pulse', 'shortcut:toggle', 'panel:collapse-instant', 'panel:reopen', 'popup:dismissed']
     if (allowed.includes(channel)) ipcRenderer.on(channel, fn)
   },
   off: (channel, fn) => ipcRenderer.removeListener(channel, fn)

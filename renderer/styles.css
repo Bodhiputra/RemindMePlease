@@ -41,10 +41,17 @@ html, body {
   background: var(--bg);
   border-radius: 0 0 var(--radius) var(--radius);
   padding: 0 16px;
-  cursor: pointer;
+  cursor: grab;
   border: 1px solid var(--border);
   border-top: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, border-radius 0.18s;
+}
+
+.notch-bar:active { cursor: grabbing; }
+
+.notch-bar.panel-open {
+  border-radius: 0;
+  border-bottom-color: transparent;
 }
 
 .notch-bar:hover {
@@ -69,6 +76,33 @@ html, body {
 
 .bar-stat.muted { color: #555555; }
 
+.bar-carousel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  height: 20px;
+  position: relative;
+}
+.carousel-text {
+  position: absolute;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 20px;
+}
+@keyframes carouselSlideOut {
+  from { transform: translateY(0); opacity: 1; }
+  to   { transform: translateY(-100%); opacity: 0; }
+}
+@keyframes carouselSlideIn {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
 .bar-btn {
   background: none;
   border: none;
@@ -86,37 +120,8 @@ html, body {
 .toggle-btn {
   font-size: 13px;
   margin-left: auto;
-}
-
-/* ─── HIDDEN HINT ─── */
-.hidden-hint {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.hidden-hint.visible {
-  display: flex;
-}
-
-.hint-text {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.04em;
-  opacity: 0;
-  transition: opacity 0.2s;
-  white-space: nowrap;
-}
-
-.hidden-hint:hover .hint-text {
-  opacity: 1;
+  width: 20px;
+  text-align: center;
 }
 
 /* Pulse animation on notification */
@@ -246,7 +251,11 @@ html, body {
 }
 
 .task-item.dragging {
-  opacity: 0.5;
+  opacity: 0.4;
+}
+
+.task-item.drag-over {
+  border-top: 2px solid var(--text-muted);
 }
 
 .task-main {
@@ -259,24 +268,27 @@ html, body {
   width: 16px;
   height: 16px;
   border: 1.5px solid var(--text-muted);
-  border-radius: 4px;
+  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   transition: border-color 0.15s, background 0.15s;
-  font-size: 10px;
 }
 
 .task-check.done {
-  background: var(--done);
-  border-color: var(--done);
-  color: var(--text-muted);
+  background: var(--text-muted);
+  border-color: var(--text-muted);
 }
 
-.task-check.in-progress {
-  border-color: var(--high);
+.task-check.done::after {
+  content: '';
+  width: 5px;
+  height: 3px;
+  border-left: 1.5px solid var(--bg);
+  border-bottom: 1.5px solid var(--bg);
+  transform: rotate(-45deg) translateY(-1px);
 }
 
 .task-title {
@@ -296,17 +308,6 @@ html, body {
   color: var(--text-muted);
 }
 
-.priority-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.priority-dot.urgent { background: var(--urgent); }
-.priority-dot.high   { background: var(--high); }
-.priority-dot.normal { background: var(--normal); }
-.priority-dot.low    { background: var(--low); }
 
 .task-meta {
   display: flex;
@@ -462,31 +463,75 @@ html, body {
 }
 
 .cal-day {
-  aspect-ratio: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
+  padding: 4px 2px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 11px;
-  position: relative;
-  transition: background 0.1s;
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+  min-height: 36px;
 }
 
-.cal-day:hover { background: var(--bg2); }
-.cal-day.today { background: var(--bg3); font-weight: 700; color: var(--text); }
-.cal-day.other-month { color: var(--done); }
-.cal-day.has-tasks::after {
-  content: '';
-  position: absolute;
-  bottom: 3px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--high);
+.cal-date {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
 }
-.cal-day.has-urgent::after { background: var(--urgent); }
+
+.cal-task-count {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 8px;
+}
+
+.cal-task-count.pending  { background: var(--bg2); color: var(--text-muted); }
+.cal-task-count.doing    { background: rgba(255,255,255,0.1); color: var(--text); }
+.cal-task-count.overdue  { background: rgba(255,80,80,0.15); color: var(--urgent); }
+.cal-task-count.done     { background: var(--bg3); color: var(--text-muted); opacity: 0.6; }
+
+.cal-day:hover { background: var(--bg2); }
+.cal-day.today .cal-date { font-weight: 700; color: var(--text); }
+.cal-day.today { background: var(--bg3); }
+.cal-day.selected { border-color: var(--text-muted); background: var(--bg2); }
+.cal-day.other-month { opacity: 0.3; cursor: default; pointer-events: none; }
+
+/* ─── CALENDAR DAY PANEL ─── */
+.cal-day-panel {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.cal-panel-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 8px 4px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cal-panel-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 10px 4px;
+}
+
+.cal-panel-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 6px 4px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cal-panel-section-label.deadline-label { color: var(--urgent); }
+.cal-panel-section-label.doing-label    { color: var(--text-muted); }
 
 /* ─── QUICK NOTE ─── */
 .quick-note-panel {
@@ -647,10 +692,22 @@ html, body {
   color: var(--text);
   font-size: 12px;
   font-family: inherit;
-  padding: 8px 12px;
   outline: none;
   width: 100%;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
   transition: border-color 0.15s;
+}
+
+.form-input, .form-select {
+  height: 34px;
+  padding: 0 12px;
+  line-height: 34px;
+}
+
+.form-select {
+  cursor: pointer;
 }
 
 .form-input:focus,
@@ -664,7 +721,13 @@ html, body {
 
 .form-textarea {
   height: 56px;
+  padding: 8px 12px;
   resize: none;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
 }
 
 .form-row {
@@ -673,6 +736,21 @@ html, body {
 }
 
 .form-row > * { flex: 1; }
+
+.form-labeled-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-labeled-field .form-select { flex: 1; }
+
+.form-field-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .form-label {
   font-size: 11px;
@@ -719,8 +797,12 @@ html, body {
   color: var(--text);
   font-size: 12px;
   font-family: inherit;
-  padding: 6px 10px;
+  padding: 0 10px;
+  height: 30px;
+  line-height: 30px;
   outline: none;
+  display: flex;
+  align-items: center;
 }
 
 .subtask-form-input:focus { border-color: #3a3a3a; }
@@ -773,6 +855,147 @@ html, body {
 .form-btn.primary:hover { opacity: 0.9; }
 .form-btn.danger { background: #2d1515; color: var(--urgent); border-color: #3d2020; }
 .form-btn.danger:hover { background: #3d1515; }
+
+/* ─── TASK TODAY BUTTON ─── */
+.task-today-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 2px 7px;
+  border-radius: 20px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.12s, background 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.task-item:hover .task-today-btn {
+  opacity: 1;
+  border-color: var(--border);
+}
+.task-today-btn:hover {
+  background: var(--bg3);
+  color: var(--text);
+  border-color: #3a3a3a;
+}
+.task-today-btn.pinned {
+  opacity: 1;
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* ─── DATE FIELD PICKER ─── */
+.date-field-wrap { flex: 1; }
+
+.date-field-btn {
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  color: var(--text-muted);
+}
+.date-field-btn.has-value { color: var(--text); }
+.date-field-btn:hover { border-color: #3a3a3a; }
+
+/* ─── INLINE DEADLINE CALENDAR ─── */
+.deadline-calendar {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.dp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.dp-month {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dp-nav {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.dp-nav:hover { color: var(--text); }
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dp-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 3px 0;
+}
+
+.dp-cell {
+  font-size: 11px;
+  text-align: center;
+  padding: 5px 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.1s;
+}
+.dp-cell:hover { background: var(--bg2); }
+.dp-cell.today { font-weight: 700; }
+.dp-cell.selected { background: var(--text); color: var(--bg); }
+.dp-cell.empty { cursor: default; pointer-events: none; }
+
+.dp-clear {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+.dp-clear:hover { background: var(--bg2); }
+
+/* ─── REMINDER CHIPS ─── */
+.reminder-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.reminder-chip {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.reminder-chip:hover { background: var(--bg2); color: var(--text); }
+.reminder-chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
 
 /* Utilities */
 .hidden { display: none !important; }

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, dialog, shell } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, screen, dialog, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const storage = require('./src/storage')
@@ -10,21 +10,23 @@ process.env.RMP_DEV = 'true'
 const NOTCH_WIDTH = 420
 const COLLAPSED_HEIGHT = 40
 const EXPANDED_MAX_HEIGHT = 600
-const HINT_HEIGHT = 6
-const HINT_EXPANDED_HEIGHT = 28
 
 let win = null
 let popupWin = null
+let tray = null
 let isExpanded = false
-let isHidden = false
-let autoHideTimer = null
+let closedWithReopen = false
 
+// ─── POSITION ─────────────────────────────────────────────────────────────────
 function getNotchPosition () {
-  const display = screen.getPrimaryDisplay()
-  const { width: sw } = display.bounds
-  return { x: Math.round(sw / 2 - NOTCH_WIDTH / 2), y: 0 }
+  const { bounds } = screen.getPrimaryDisplay()
+  return {
+    x: Math.round(bounds.x + bounds.width / 2 - NOTCH_WIDTH / 2),
+    y: bounds.y   // y=0 — works because frame: false bypasses Electron's y-floor
+  }
 }
 
+// ─── MAIN WINDOW ──────────────────────────────────────────────────────────────
 function createWindow () {
   const pos = getNotchPosition()
 
@@ -39,7 +41,7 @@ function createWindow () {
     resizable: false,
     skipTaskbar: true,
     hasShadow: false,
-    movable: false,
+    movable: true,
     focusable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -48,52 +50,35 @@ function createWindow () {
     }
   })
 
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   win.setAlwaysOnTop(true, 'screen-saver')
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setPosition(pos.x, 0)  // must be called AFTER setAlwaysOnTop — that's when y=0 bypass applies
+  win.setIgnoreMouseEvents(true, { forward: true })
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
 
-  scheduler.init(win, showTemporarily)
+  scheduler.init(win)
   watcher.init(win)
 }
 
-// Show notch temporarily (called by scheduler on notification)
-function showTemporarily () {
-  if (!win) return
-  if (autoHideTimer) clearTimeout(autoHideTimer)
-  isHidden = false
-  win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
-  win.webContents.send('notch:show-temp')
-  win.webContents.send('notch:leaving-hidden')
-  // Auto-hide again after 8s if user doesn't interact
-  autoHideTimer = setTimeout(() => {
-    if (!isHidden) {
-      isHidden = true
-      win.setSize(NOTCH_WIDTH, HINT_HEIGHT)
-      win.webContents.send('notch:entering-hidden')
-    }
-  }, 8000)
-}
-
-// Popup window
+// ─── POPUP WINDOW ─────────────────────────────────────────────────────────────
 function createPopupWindow (view, taskId) {
   if (popupWin && !popupWin.isDestroyed()) popupWin.close()
 
-  // Collapse main panel before popup appears
   if (isExpanded) {
     isExpanded = false
     win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
     win.webContents.send('panel:collapse-instant')
   }
 
-  const pos = getNotchPosition()
+  const [wx, wy] = win.getPosition()
   const query = { view, ...(taskId ? { taskId } : {}) }
 
   popupWin = new BrowserWindow({
     width: NOTCH_WIDTH,
     height: 100,
-    x: pos.x,
-    y: COLLAPSED_HEIGHT,
+    x: wx,
+    y: wy + COLLAPSED_HEIGHT,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -109,30 +94,62 @@ function createPopupWindow (view, taskId) {
     }
   })
 
-  popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   popupWin.setAlwaysOnTop(true, 'screen-saver')
+  popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   popupWin.loadFile(path.join(__dirname, 'renderer', 'popup.html'), { query })
 
-  // Settings and quick-note close on blur; task-form requires explicit close
   if (view !== 'task-form') {
     popupWin.on('blur', () => { if (popupWin && !popupWin.isDestroyed()) popupWin.close() })
   }
 
-  popupWin.on('closed', () => { popupWin = null })
+  popupWin.on('closed', () => {
+    popupWin = null
+    if (win && !win.isDestroyed()) {
+      if (closedWithReopen) {
+        closedWithReopen = false
+        win.webContents.send('panel:reopen')
+      } else {
+        win.webContents.send('popup:dismissed')
+      }
+    }
+  })
 }
 
-ipcMain.handle('popup:open', (_, { view, taskId }) => createPopupWindow(view, taskId || null))
-ipcMain.handle('popup:close', () => { if (popupWin && !popupWin.isDestroyed()) popupWin.close() })
+// ─── IPC ──────────────────────────────────────────────────────────────────────
+ipcMain.handle('popup:open',   (_, { view, taskId }) => createPopupWindow(view, taskId || null))
+ipcMain.handle('popup:close',  () => { if (popupWin && !popupWin.isDestroyed()) popupWin.close() })
 ipcMain.handle('popup:resize', (_, height) => {
   if (!popupWin || popupWin.isDestroyed()) return
   popupWin.setSize(NOTCH_WIDTH, Math.min(Math.max(height, 80), 560), true)
 })
+ipcMain.handle('popup:commit', () => {
+  closedWithReopen = true
+  if (popupWin && !popupWin.isDestroyed()) popupWin.close()
+})
 
-// IPC — storage
-ipcMain.handle('storage:read', () => storage.read())
+ipcMain.on('window:move', (_, { dx, dy }) => {
+  if (!win || win.isDestroyed()) return
+  const [x, y] = win.getPosition()
+  win.setPosition(x + dx, y + dy)
+})
+
+ipcMain.on('window:ignore-mouse', (_, ignore) => {
+  if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(ignore, { forward: true })
+})
+
+ipcMain.on('tray:setTitle', (_, title) => {
+  if (tray) tray.setTitle(title)
+})
+
+ipcMain.handle('app:restart', () => {
+  const { spawn } = require('child_process')
+  spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'ignore' }).unref()
+  app.exit(0)
+})
+
+ipcMain.handle('storage:read',  () => storage.read())
 ipcMain.handle('storage:write', (_, data) => storage.write(data))
 
-// IPC — window resize (expand / collapse)
 ipcMain.handle('window:expand', (_, contentHeight) => {
   isExpanded = true
   const height = Math.min(contentHeight + COLLAPSED_HEIGHT, EXPANDED_MAX_HEIGHT)
@@ -144,7 +161,6 @@ ipcMain.handle('window:collapse', () => {
   win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT, true)
 })
 
-// IPC — export
 ipcMain.handle('export:json', async () => {
   const data = storage.read()
   const { filePath } = await dialog.showSaveDialog({
@@ -152,110 +168,64 @@ ipcMain.handle('export:json', async () => {
     defaultPath: `remindmeplease-backup-${Date.now()}.json`,
     filters: [{ name: 'JSON', extensions: ['json'] }]
   })
-  if (filePath) {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
-    return { success: true, path: filePath }
-  }
+  if (filePath) { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); return { success: true } }
   return { success: false }
 })
 
 ipcMain.handle('export:csv', async () => {
   const data = storage.read()
-  const rows = [
-    ['ID', 'Title', 'Status', 'Priority', 'Category', 'Deadline', 'AddedBy', 'CreatedAt', 'CompletedAt', 'Notes'].join(',')
-  ]
+  const rows = [['ID','Title','Status','Priority','Category','Deadline','AddedBy','CreatedAt','CompletedAt','Notes'].join(',')]
   data.tasks.forEach(task => {
-    rows.push([
-      task.id,
-      `"${(task.title || '').replace(/"/g, '""')}"`,
-      task.status,
-      task.priority,
-      task.category || '',
-      task.deadline || '',
-      task.addedBy || 'user',
-      task.createdAt || '',
-      task.completedAt || '',
-      `"${(task.notes || '').replace(/"/g, '""')}"`
-    ].join(','))
-    // Subtasks as separate rows
-    if (task.subtasks && task.subtasks.length) {
-      task.subtasks.forEach(sub => {
-        rows.push([
-          `${task.id}-sub`,
-          `"  └ ${(sub.title || '').replace(/"/g, '""')}"`,
-          sub.done ? 'done' : 'todo',
-          '', '', '', '', '', '', ''
-        ].join(','))
-      })
-    }
+    rows.push([task.id, `"${(task.title||'').replace(/"/g,'""')}"`, task.status,
+      task.priority||'', task.category||'', task.deadline||'', task.addedBy||'user',
+      task.createdAt||'', task.completedAt||'', `"${(task.notes||'').replace(/"/g,'""')}"`].join(','))
+    ;(task.subtasks||[]).forEach(sub => {
+      rows.push([`${task.id}-sub`, `"  └ ${(sub.title||'').replace(/"/g,'""')}"`,
+        sub.done?'done':'todo','','','','','','',''].join(','))
+    })
   })
-
   const { filePath } = await dialog.showSaveDialog({
     title: 'Export as CSV',
     defaultPath: `remindmeplease-${Date.now()}.csv`,
     filters: [{ name: 'CSV', extensions: ['csv'] }]
   })
-  if (filePath) {
-    fs.writeFileSync(filePath, rows.join('\n'))
-    return { success: true, path: filePath }
-  }
+  if (filePath) { fs.writeFileSync(filePath, rows.join('\n')); return { success: true } }
   return { success: false }
 })
 
-// IPC — hide / show notch
-ipcMain.handle('window:hide-notch', () => {
-  isHidden = true
-  if (autoHideTimer) clearTimeout(autoHideTimer)
-  win.setSize(NOTCH_WIDTH, HINT_HEIGHT)
-  win.setIgnoreMouseEvents(false)
-  win.webContents.send('notch:entering-hidden')
-  new (require('electron').Notification)({
-    title: 'RemindMePlease is hidden',
-    body: 'Press Cmd+Shift+Space to restore it'
-  }).show()
-})
-
-ipcMain.handle('window:show-notch', () => {
-  isHidden = false
-  if (autoHideTimer) clearTimeout(autoHideTimer)
-  win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
-  win.webContents.send('notch:leaving-hidden')
-})
-
-// IPC — hover hint while hidden
-ipcMain.handle('window:hint-expand', () => {
-  if (!isHidden) return
-  win.setSize(NOTCH_WIDTH, HINT_EXPANDED_HEIGHT)
-})
-
-ipcMain.handle('window:hint-collapse', () => {
-  if (!isHidden) return
-  win.setSize(NOTCH_WIDTH, HINT_HEIGHT)
-})
-
-// IPC — open data folder
 ipcMain.handle('data:openFolder', () => {
   shell.openPath(path.dirname(storage.getDataFilePath()))
 })
 
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  if (app.dock) app.dock.hide()
+
   createWindow()
 
-  // Global shortcut — shows notch if hidden, else toggles expand/collapse
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
-    if (!win) return
-    if (isHidden) {
-      isHidden = false
-      if (autoHideTimer) clearTimeout(autoHideTimer)
-      win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
-      win.webContents.send('notch:leaving-hidden')
-    } else {
-      win.webContents.send('shortcut:toggle')
-    }
+  // Tray for quit only — notch bar in menu bar is the main UI presence
+  tray = new Tray(path.join(__dirname, 'assets', 'tray-icon.png'))
+  tray.setToolTip('RemindMePlease')
+  tray.on('right-click', () => {
+    tray.popUpContextMenu(Menu.buildFromTemplate([
+      { label: 'Restart', click: () => {
+          const { spawn } = require('child_process')
+          spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'ignore' }).unref()
+          app.exit(0)
+        }
+      },
+      { type: 'separator' },
+      { label: 'Quit RemindMePlease', click: () => app.quit() }
+    ]))
   })
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  // Global shortcut — collapse/expand toggle
+  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    if (!win) return
+    if (popupWin && !popupWin.isDestroyed()) popupWin.close()
+    isExpanded = false
+    win.setSize(NOTCH_WIDTH, COLLAPSED_HEIGHT)
+    win.webContents.send('panel:collapse-instant')
   })
 })
 
@@ -265,5 +235,5 @@ app.on('will-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // Keep alive as always-on menu bar widget
 })

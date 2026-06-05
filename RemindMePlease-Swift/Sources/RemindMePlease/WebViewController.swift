@@ -28,6 +28,9 @@ class BaseWebViewController: NSObject, WKNavigationDelegate, WKScriptMessageHand
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
+        if #available(macOS 13.3, *) {
+            webView.underPageBackgroundColor = .clear
+        }
 
         super.init()
 
@@ -70,19 +73,35 @@ class BaseWebViewController: NSObject, WKNavigationDelegate, WKScriptMessageHand
     // ── IPC response ──────────────────────────────────────────────────────────
 
     func resolve(callId: String, result: Any?) {
-        let json: String
-        if let r = result {
-            json = (try? String(
-                data: JSONSerialization.data(withJSONObject: r, options: []),
-                encoding: .utf8
-            )) ?? "null"
-        } else {
-            json = "null"
-        }
+        let json = Self.jsLiteral(for: result)
         let js = "window.rmp._resolve('\(callId)', \(json))"
         DispatchQueue.main.async { [weak self] in
             self?.webView.evaluateJavaScript(js, completionHandler: nil)
         }
+    }
+
+    /// JSON-safe value for evaluateJavaScript (Bool/Int scalars are not valid JSON objects alone).
+    private static func jsLiteral(for value: Any?) -> String {
+        guard let value else { return "null" }
+        if value is NSNull { return "null" }
+        if let b = value as? Bool { return b ? "true" : "false" }
+        if let n = value as? Int { return "\(n)" }
+        if let n = value as? Double { return "\(n)" }
+        if let n = value as? CGFloat { return "\(Double(n))" }
+        if let n = value as? NSNumber { return n.stringValue }
+        if let s = value as? String {
+            let escaped = s
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(escaped)\""
+        }
+        if JSONSerialization.isValidJSONObject(value),
+           let data = try? JSONSerialization.data(withJSONObject: value),
+           let str = String(data: data, encoding: .utf8)
+        {
+            return str
+        }
+        return "null"
     }
 
     func emit(_ channel: String, args: String = "") {
@@ -101,6 +120,10 @@ final class NotchWebViewController: BaseWebViewController {
         super.init(isPopup: false)
         let url = URL(string: "rmp://renderer/index.html")!
         webView.load(URLRequest(url: url))
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        AppManager.shared.notchPanel?.pushGeometryToWeb()
     }
 }
 

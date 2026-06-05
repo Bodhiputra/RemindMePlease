@@ -26,13 +26,22 @@ enum JSPreload {
 
   window.rmp = {
     read:          function ()        { return invoke('storage:read'); },
+    getGeometry:   function ()        { return invoke('window:get-geometry'); },
     write:         function (d)       { return invoke('storage:write', d); },
     expand:        function (h)       { return invoke('window:expand', h); },
     collapse:      function ()        { return invoke('window:collapse'); },
+    setHeight:     function (h)       { return invoke('window:set-height', h); },
+    pointerOverNotch: function ()     { return invoke('window:pointer-over-notch'); },
+    refreshHover:  function ()        { return invoke('window:refresh-hover'); },
+    setNotchHoverSuspended: function (v) { send('window:notch-hover-suspended', !!v); },
     restartApp:    function ()        { return invoke('app:restart'); },
     ignoreMouse:   function (v)       { send('window:ignore-mouse', v); },
+    bringToFront:  function ()        { send('window:bring-front'); },
+    makeKey:       function ()        { send('panel:makeKey'); },
     exportJson:    function ()        { return invoke('export:json'); },
     exportCsv:     function ()        { return invoke('export:csv'); },
+    exportTxt:     function (text)    { return invoke('export:txt', text); },
+    copyToClipboard:function (text)   { return invoke('clipboard:write', text); },
     openDataFolder:function ()        { return invoke('data:openFolder'); },
     openPopup:     function (v, tid)  { return invoke('popup:open', { view: v, taskId: tid || null }); },
     closePopup:    function ()        { return invoke('popup:close'); },
@@ -42,8 +51,8 @@ enum JSPreload {
     setTrayTitle:  function (t)       { send('tray:setTitle', t); },
 
     on: function (ch, fn) {
-      var allowed = ['storage:changed','notch:pulse','shortcut:toggle',
-                     'panel:collapse-instant','panel:reopen','popup:dismissed'];
+      var allowed = ['storage:changed','notch:pulse','notch:geometry','notch:hover-enter','notch:hover-leave',
+                     'shortcut:toggle','sheet:open','panel:reopen','panel:collapse-instant','popup:dismissed','app:resign-active'];
       if (allowed.indexOf(ch) !== -1) {
         if (!_listeners[ch]) _listeners[ch] = [];
         _listeners[ch].push(fn);
@@ -63,7 +72,9 @@ enum JSPreload {
     _emit: function (ch) {
       var args = Array.prototype.slice.call(arguments, 1);
       if (_listeners[ch])
-        _listeners[ch].forEach(function (fn) { fn.apply(null, [{}].concat(args)); });
+        _listeners[ch].forEach(function (fn) {
+          fn.apply(null, args.length ? args : []);
+        });
     }
   };
 })();

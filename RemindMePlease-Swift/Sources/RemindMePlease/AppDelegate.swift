@@ -7,9 +7,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        quitLegacyElectron()
         setupStatusBar()
         setupNotchPanel()
         registerGlobalHotKey()
+    }
+
+    /// Only one app should run — kill the old Electron build if it is still open.
+    private func quitLegacyElectron() {
+        let pkill = URL(fileURLWithPath: "/usr/bin/pkill")
+        for pattern in ["electron.*remindmeplease", "Electron /Users/fantech/remindmeplease"] {
+            let proc = Process()
+            proc.executableURL = pkill
+            proc.arguments = ["-f", pattern]
+            try? proc.run()
+            proc.waitUntilExit()
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        notchPanel?.snapToMenuBar(animate: false)
+        notchPanel?.refreshHoverState()
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        notchPanel?.noteApplicationResignedActive()
+        AppManager.shared.emitToMain("app:resign-active")
     }
 
     func applicationWillTerminate(_ notification: Notification) {

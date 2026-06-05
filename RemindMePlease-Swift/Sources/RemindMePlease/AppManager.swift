@@ -6,8 +6,7 @@ import WebKit
 final class AppManager {
     static let shared = AppManager()
 
-    // Renderer files live here (dev path — bundle for production)
-    let rendererDir = URL(fileURLWithPath: "/Users/fantech/remindmeplease/renderer")
+    let rendererDir = AppPaths.rendererDir
 
     weak var notchPanel: NotchPanel?
     weak var popupPanel: PopupPanel?
@@ -27,6 +26,15 @@ final class AppManager {
         DispatchQueue.main.async { wv.evaluateJavaScript(js, completionHandler: nil) }
     }
 
+    func emitNotchGeometry(_ payload: [String: Double]) {
+        guard let wv = mainWebView,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        let js = "window.rmp._emit('notch:geometry', \(json))"
+        DispatchQueue.main.async { wv.evaluateJavaScript(js, completionHandler: nil) }
+    }
+
     // ── IPC — invoke (expects a response) ────────────────────────────────────
 
     func handleInvoke(
@@ -38,6 +46,21 @@ final class AppManager {
         resolve: @escaping (Any?) -> Void
     ) {
         switch method {
+
+        case "window:get-geometry":
+            if let panel = notchPanel {
+                resolve(NotchGeometry.dictionary(panel.metrics))
+            } else {
+                let screen = NotchPanel.menuBarScreen()
+                resolve(NotchGeometry.dictionary(NotchGeometry.metrics(on: screen)))
+            }
+
+        case "window:pointer-over-notch":
+            resolve(notchPanel?.isPointerOverNotch() ?? false)
+
+        case "window:refresh-hover":
+            DispatchQueue.main.async { self.notchPanel?.refreshHoverState() }
+            resolve(true)
 
         case "storage:read":
             resolve(Storage.shared.read())
@@ -53,6 +76,12 @@ final class AppManager {
         case "window:expand":
             if let h = (args as? NSNumber)?.doubleValue {
                 notchPanel?.expand(contentHeight: CGFloat(h))
+            }
+            resolve(true)
+
+        case "window:set-height":
+            if let n = args as? NSNumber {
+                notchPanel?.setHeight(CGFloat(n.doubleValue))
             }
             resolve(true)
 
@@ -123,6 +152,33 @@ final class AppManager {
                 }
             }
 
+        case "export:txt":
+            DispatchQueue.main.async {
+                guard let text = args as? String else {
+                    resolve(["success": false])
+                    return
+                }
+                let panel = NSSavePanel()
+                panel.title = "Save as Text"
+                panel.nameFieldStringValue = "remindmeplease-\(Int(Date().timeIntervalSince1970)).txt"
+                panel.allowedContentTypes = [.plainText]
+                if panel.runModal() == .OK, let url = panel.url {
+                    try? text.write(to: url, atomically: true, encoding: .utf8)
+                    resolve(["success": true])
+                } else {
+                    resolve(["success": false])
+                }
+            }
+
+        case "clipboard:write":
+            if let text = args as? String {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                resolve(true)
+            } else {
+                resolve(false)
+            }
+
         case "data:openFolder":
             NSWorkspace.shared.open(URL(fileURLWithPath: Storage.shared.folderPath))
             resolve(true)
@@ -138,8 +194,19 @@ final class AppManager {
         switch method {
 
         case "window:ignore-mouse":
-            // Notch is always interactive in Swift — no-op
+            // Disabled — global ignoresMouseEvents was the click-to-hide bug.
             break
+
+        case "window:bring-front":
+            DispatchQueue.main.async {
+                self.notchPanel?.bringToFront()
+            }
+
+        case "panel:makeKey":
+            DispatchQueue.main.async {
+                self.notchPanel?.orderFrontRegardless()
+                self.notchPanel?.makeKeyAndOrderFront(nil)
+            }
 
         case "window:move":
             if let dict = args as? [String: Any],
@@ -153,6 +220,12 @@ final class AppManager {
                 DispatchQueue.main.async { self.statusItem?.button?.title = title }
             }
 
+        case "window:notch-hover-suspended":
+            if let on = args as? Bool {
+                notchPanel?.hoverTrackingSuspended = on
+                if !on { DispatchQueue.main.async { self.notchPanel?.refreshHoverState() } }
+            }
+
         default:
             break
         }
@@ -162,19 +235,29 @@ final class AppManager {
 
     func openPopup(view: String, taskId: String?) {
         popupPanel?.close()
+        popupPanel = nil
 
-        // Collapse the main panel instantly when popup opens
-        notchPanel?.collapseInstant()
-        emitToMain("panel:collapse-instant")
+        guard notchPanel != nil else { return }
 
-        guard let np = notchPanel else { return }
-        let popup = PopupPanel(view: view, taskId: taskId, below: np)
-        popup.appManager = self
-        popupPanel = popup
-        popup.makeKeyAndOrderFront(nil)
+        notchPanel?.hoverTrackingSuspended = true
+
+        var payload: [String: Any] = ["view": view]
+        if let taskId { payload["taskId"] = taskId }
+        emitSheetOpen(payload)
+    }
+
+    private func emitSheetOpen(_ payload: [String: Any]) {
+        guard let wv = mainWebView,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        let js = "window.rmp._emit('sheet:open', \(json))"
+        DispatchQueue.main.async { wv.evaluateJavaScript(js, completionHandler: nil) }
     }
 
     func popupDidClose() {
+        notchPanel?.hoverTrackingSuspended = false
+        notchPanel?.refreshHoverState()
         if closedWithReopen {
             closedWithReopen = false
             emitToMain("panel:reopen")

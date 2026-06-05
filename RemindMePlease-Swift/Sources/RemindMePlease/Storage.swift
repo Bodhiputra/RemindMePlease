@@ -8,6 +8,7 @@ final class Storage {
 
     private let defaultData: [String: Any] = [
         "tasks": [Any](),
+        "notes": [Any](),
         "categories": ["Work", "Personal", "Urgent", "Design", "Marketing"],
         "weeklyHistory": [Any](),
         "settings": [

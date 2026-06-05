@@ -6,19 +6,19 @@ private let POPUP_MAX_HEIGHT:     CGFloat = 560
 
 final class PopupPanel: NSPanel, NSWindowDelegate {
     private let wvc: PopupWebViewController
-    private let isTaskForm: Bool
+    private let staysOpenOnResign: Bool
     weak var appManager: AppManager?
 
-    init(view: String, taskId: String?, below notch: NSPanel) {
-        isTaskForm = (view == "task-form")
+    init(view: String, taskId: String?, below notch: NotchPanel, anchorFrame: NSRect) {
+        staysOpenOnResign = (view == "task-form" || view == "quick-note" || view == "settings")
         wvc = PopupWebViewController(view: view, taskId: taskId)
 
-        // Position directly below the notch panel
-        let x = notch.frame.origin.x
-        let y = notch.frame.origin.y - POPUP_INITIAL_HEIGHT
+        let x = anchorFrame.origin.x
+        let w = anchorFrame.width
+        let y = anchorFrame.origin.y - POPUP_INITIAL_HEIGHT
 
         super.init(
-            contentRect: NSRect(x: x, y: y, width: NOTCH_WIDTH, height: POPUP_INITIAL_HEIGHT),
+            contentRect: NSRect(x: x, y: y, width: w, height: POPUP_INITIAL_HEIGHT),
             styleMask:   [.nonactivatingPanel, .borderless, .fullSizeContentView],
             backing:     .buffered,
             defer:       false
@@ -29,8 +29,7 @@ final class PopupPanel: NSPanel, NSWindowDelegate {
         hasShadow         = false
         hidesOnDeactivate = false
 
-        // Same level as the notch — stack above menu bar
-        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)))
+        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 4)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
         contentView = wvc.view
@@ -46,7 +45,7 @@ final class PopupPanel: NSPanel, NSWindowDelegate {
         let topEdge = frame.origin.y + frame.height
         setFrame(NSRect(x: frame.origin.x,
                         y: topEdge - h,
-                        width: NOTCH_WIDTH,
+                        width: frame.width,
                         height: h),
                  display: true, animate: false)
     }
@@ -54,11 +53,7 @@ final class PopupPanel: NSPanel, NSWindowDelegate {
     // ── NSWindowDelegate ──────────────────────────────────────────────────────
 
     func windowDidResignKey(_ notification: Notification) {
-        // Close when focus leaves, unless this is the task-form (user may be
-        // interacting with native pickers or other UI outside the popup).
-        if !isTaskForm {
-            close()
-        }
+        if !staysOpenOnResign { close() }
     }
 
     func windowWillClose(_ notification: Notification) {

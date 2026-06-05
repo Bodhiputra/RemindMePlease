@@ -2,6 +2,8 @@
 let data = { tasks: [], categories: [], weeklyHistory: [], settings: {}, quickNote: '' }
 let currentView   = 'master'
 let isExpanded    = false
+/** 'hover' = peek (auto-collapse on leave); 'user' = clicked/toggled (stay open). */
+let expandSource  = null
 let popupOpen     = false
 let dragSrcId     = null
 let calendarDate        = new Date()
@@ -10,13 +12,55 @@ let searchQuery   = ''
 let filterCategory = ''
 let carouselTimer = null
 let carouselIdx   = 0
+let hoverCollapseTimer = null
+let toastTimer = null
+const HOVER_LEAVE_MS = 200
+
+let notchGeo = {
+  width: 420,
+  barHeight: 40,
+  chinHeight: 0,
+  collapsedHeight: 40,
+  expandedMax: 480
+}
+
+function shellCollapsedH () {
+  return notchGeo.collapsedHeight ?? (notchGeo.barHeight + (notchGeo.chinHeight || 0))
+}
+
+function shellExpandedH () {
+  return notchGeo.expandedMax ?? 480
+}
+
+function applyNotchGeometry (geo) {
+  if (!geo || typeof geo !== 'object') return
+  notchGeo = { ...notchGeo, ...geo }
+  const collapsed = notchGeo.collapsedHeight
+    ?? (notchGeo.barHeight + (notchGeo.chinHeight || 0))
+  notchGeo.collapsedHeight = collapsed
+
+  const root = document.documentElement
+  root.style.setProperty('--notch-width', `${notchGeo.width}px`)
+  root.style.setProperty('--notch-bar-height', `${notchGeo.barHeight}px`)
+  root.style.setProperty('--chin-height', `${notchGeo.chinHeight || 0}px`)
+  root.style.setProperty('--shell-collapsed-height', `${collapsed}px`)
+  root.style.setProperty('--shell-expanded-height', `${shellExpandedH()}px`)
+
+  // Native panel already uses collapsedHeight from NotchGeometry — CSS vars only here.
+}
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init () {
   data = await window.rmp.read()
+  try {
+    applyNotchGeometry(await window.rmp.getGeometry())
+  } catch (_) { /* fallback defaults */ }
   renderBar()
   setupEvents()
   setupMousePassthrough()
+
+  window.rmp.on('notch:geometry', applyNotchGeometry)
+  setupNativeHover()
 
   window.rmp.on('storage:changed', async () => {
     data = await window.rmp.read()
@@ -31,22 +75,25 @@ async function init () {
 
   window.rmp.on('shortcut:toggle', () => togglePanel())
 
-  // Popup opened: collapse panel instantly (no animation)
-  window.rmp.on('panel:collapse-instant', () => {
-    isExpanded = false
-    popupOpen = true
-    const panel = document.getElementById('panel')
-    panel.classList.remove('panel-entering', 'panel-leaving')
-    panel.classList.add('hidden')
-    document.getElementById('notch-bar').classList.remove('panel-open')
-    document.getElementById('btn-toggle').textContent = '▾'
+  window.rmp.on('panel:collapse-instant', () => collapsePanelInstant())
+
+  window.rmp.on('app:resign-active', () => {
+    clearHoverTimers()
+    if (popupOpen) closeSheet(false)
+    if (isExpanded) collapsePanelInstant()
+    window.rmp.refreshHover?.()
   })
 
-  // Popup committed (save/delete): re-expand panel
-  window.rmp.on('panel:reopen', () => { popupOpen = false; expandPanel() })
+  // Popup opened: collapse panel instantly (no animation)
+  window.rmp.on('sheet:open', (payload) => {
+    const view = payload?.view
+    const taskId = payload?.taskId || null
+    if (view) openSheet(view, taskId)
+  })
 
-  // Popup dismissed (blur/escape): just clear flag
-  window.rmp.on('popup:dismissed', () => { popupOpen = false })
+  document.getElementById('sheet-backdrop')?.addEventListener('click', () => {
+    if (popupOpen) closeSheet(false)
+  })
 }
 
 // ─── BAR ──────────────────────────────────────────────────────────────────────
@@ -78,16 +125,29 @@ function renderBar () {
 
 // ─── TOGGLE ───────────────────────────────────────────────────────────────────
 function togglePanel () {
-  if (popupOpen) { window.rmp.closePopup(); return }
+  if (popupOpen) { closeSheet(false); return }
   if (isExpanded) collapsePanel()
   else expandPanel()
 }
 
-function expandPanel () {
+function pinExpandInteraction () {
+  if (!isExpanded) return
+  expandSource = 'user'
+  clearHoverTimers()
+}
+
+function expandPanel (source = 'user') {
+  clearHoverTimers()
+  expandSource = source
   isExpanded = true
-  window.rmp.closePopup()
-  const panel   = document.getElementById('panel')
-  const notch   = document.getElementById('notch-bar')
+  if (popupOpen) closeSheet(false)
+  window.rmp.bringToFront()
+  const shell = document.getElementById('app-shell')
+  const panel = document.getElementById('panel')
+  const notch = document.getElementById('notch-bar')
+  document.body.classList.add('expanded')
+  shell.classList.add('expanded')
+  window.rmp.setHeight(shellExpandedH())
   notch.classList.add('panel-open')
   panel.classList.remove('hidden', 'panel-leaving')
   panel.classList.add('panel-entering')
@@ -95,12 +155,18 @@ function expandPanel () {
   document.getElementById('btn-toggle').textContent = '▴'
   renderCurrentView()
   populateCategoryFilter()
-  setTimeout(() => window.rmp.expand(panel.scrollHeight), 30)
+}
+
+function clearHoverTimers () {
+  if (hoverCollapseTimer) { clearTimeout(hoverCollapseTimer); hoverCollapseTimer = null }
 }
 
 function collapsePanel () {
+  clearHoverTimers()
+  expandSource = null
   isExpanded = false
-  window.rmp.closePopup()
+  if (popupOpen) closeSheet(false)
+  const shell = document.getElementById('app-shell')
   const panel = document.getElementById('panel')
   const notch = document.getElementById('notch-bar')
   document.getElementById('btn-toggle').textContent = '▾'
@@ -110,8 +176,36 @@ function collapsePanel () {
     panel.classList.remove('panel-leaving')
     panel.classList.add('hidden')
     notch.classList.remove('panel-open')
-    window.rmp.collapse()
+    document.body.classList.remove('expanded')
+    shell.classList.remove('expanded')
+    window.rmp.setHeight(shellCollapsedH())
+    window.rmp.refreshHover?.()
   }, 180)
+}
+
+/** Native collapse (hotkey / focus loss) — keep JS in sync without animation. */
+function collapsePanelInstant () {
+  clearHoverTimers()
+  expandSource = null
+  isExpanded = false
+  const shell = document.getElementById('app-shell')
+  const panel = document.getElementById('panel')
+  const notch = document.getElementById('notch-bar')
+  document.getElementById('btn-toggle').textContent = '▾'
+  panel.classList.remove('panel-entering', 'panel-leaving')
+  panel.classList.add('hidden')
+  notch.classList.remove('panel-open')
+  document.body.classList.remove('expanded')
+  shell.classList.remove('expanded')
+  window.rmp.setHeight(shellCollapsedH())
+}
+
+async function collapseIfPointerOutsideNotch () {
+  if (popupOpen || !isExpanded || notchDragActive) return
+  try {
+    const over = await window.rmp.pointerOverNotch?.()
+    if (over === false) collapsePanel()
+  } catch (_) { /* ignore */ }
 }
 
 // ─── VIEW ROUTING ─────────────────────────────────────────────────────────────
@@ -124,10 +218,7 @@ function renderCurrentView () {
 }
 
 function updateExpandHeight () {
-  setTimeout(() => {
-    const panel = document.getElementById('panel')
-    window.rmp.expand(panel.scrollHeight)
-  }, 30)
+  // Window size is fixed in Swift — shell height handles expand/collapse.
 }
 
 // ─── MASTER VIEW ──────────────────────────────────────────────────────────────
@@ -365,6 +456,15 @@ function renderCategory () {
   })
 }
 
+function showToast (message) {
+  const toast = document.getElementById('app-toast')
+  if (!toast) return
+  toast.textContent = message
+  toast.classList.remove('hidden')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), 2000)
+}
+
 // ─── TASK ELEMENT ─────────────────────────────────────────────────────────────
 function buildTaskEl (task) {
   const el = document.createElement('div')
@@ -412,25 +512,50 @@ function buildTaskEl (task) {
 
   el.innerHTML = `
     <div class="task-main">
-      <div class="task-check ${isDone ? 'done' : ''}" data-id="${task.id}"></div>
-      <span class="task-title ${isStrike ? 'strike' : ''}">${escHtml(task.title)}</span>
-      <button class="task-today-btn ${task.pinnedToToday ? 'pinned' : ''}">${task.pinnedToToday ? 'Today ✓' : 'Today'}</button>
+      <div class="task-check ${isDone ? 'done' : ''}" role="button" aria-label="${isDone ? 'Mark incomplete' : 'Mark complete'}" tabindex="0" data-tooltip="${isDone ? 'Mark incomplete' : 'Mark complete'}"></div>
+      <span class="task-title task-title--clickable ${isStrike ? 'strike' : ''}">${escHtml(task.title)}</span>
+      <div class="task-actions">
+        <button type="button" class="task-action-btn task-today-btn ${task.pinnedToToday ? 'pinned' : ''}" data-tooltip="${task.pinnedToToday ? 'Unpin from Today' : 'Pin to Today'}">${task.pinnedToToday ? 'Pinned' : 'Today'}</button>
+        <button type="button" class="task-icon-btn task-copy-btn" data-tooltip="Copy" aria-label="Copy task">⎘</button>
+        <button type="button" class="task-icon-btn task-icon-btn--danger task-delete-btn" data-tooltip="Delete" aria-label="Delete task">🗑</button>
+      </div>
     </div>
     <div class="task-meta">${deadlineTag}${catTag}${agentTag}${recTag}</div>
     ${subtaskHTML}
   `
 
-  el.querySelector('.task-check').addEventListener('click', e => { e.stopPropagation(); cycleStatus(task.id) })
+  el.querySelector('.task-title').addEventListener('click', e => {
+    e.stopPropagation()
+    pinExpandInteraction()
+    openForm(task.id)
+  })
+
+  el.querySelector('.task-check').addEventListener('click', e => {
+    e.stopPropagation()
+    cycleStatus(task.id)
+  })
+
   el.querySelector('.task-today-btn').addEventListener('click', e => {
     e.stopPropagation()
     task.pinnedToToday = !task.pinnedToToday
     save()
   })
+  el.querySelector('.task-copy-btn').addEventListener('click', e => {
+    e.stopPropagation()
+    copyTaskToClipboard(task, e.currentTarget)
+  })
+  el.querySelector('.task-delete-btn').addEventListener('click', e => {
+    e.stopPropagation()
+    deleteTask(task.id)
+  })
   el.querySelectorAll('.subtask-inline-check').forEach(chk => {
     chk.addEventListener('click', e => { e.stopPropagation(); toggleSubtask(chk.dataset.taskId, chk.dataset.subId) })
   })
-  el.addEventListener('click', () => openForm(task.id))
-  el.addEventListener('dragstart', () => { dragSrcId = task.id; el.classList.add('dragging') })
+  el.addEventListener('dragstart', e => {
+    if (e.target.closest('.task-action-btn, .task-icon-btn, .subtask-inline')) { e.preventDefault(); return }
+    dragSrcId = task.id
+    el.classList.add('dragging')
+  })
   el.addEventListener('dragend',   () => {
     el.classList.remove('dragging')
     document.querySelectorAll('.task-item.drag-over').forEach(x => x.classList.remove('drag-over'))
@@ -451,13 +576,39 @@ function buildTaskEl (task) {
 }
 
 // ─── TASK ACTIONS ─────────────────────────────────────────────────────────────
+function deleteTask (id) {
+  const task = data.tasks.find(t => t.id === id)
+  if (!task) return
+  task.status = 'archived'
+  task.strikethrough = true
+  save()
+  showToast('Task deleted')
+}
+
+function syncSubtasksWithTaskStatus (task) {
+  if (!task?.subtasks?.length) return
+  if (task.status === 'done') {
+    task.subtasks.forEach(s => { s.done = true })
+  }
+}
+
 function cycleStatus (id) {
   const task = data.tasks.find(t => t.id === id)
   if (!task) return
   task.status = task.status === 'done' ? 'todo' : 'done'
   task.strikethrough = task.status === 'done'
   task.completedAt = task.status === 'done' ? new Date().toISOString() : null
+  syncSubtasksWithTaskStatus(task)
   save()
+}
+
+async function copyTaskToClipboard (task, btn) {
+  await window.rmp.copyToClipboard(task.title)
+  showToast('Title copied')
+  if (btn) {
+    btn.classList.add('copied')
+    setTimeout(() => btn.classList.remove('copied'), 1500)
+  }
 }
 
 function toggleSubtask (taskId, subId) {
@@ -485,9 +636,46 @@ async function save () {
   if (isExpanded) renderCurrentView()
 }
 
-// ─── OPEN FORM ────────────────────────────────────────────────────────────────
+// ─── IN-PANEL SHEETS (task form, notes, settings) ─────────────────────────────
+function openSheet (view, taskId = null) {
+  clearHoverTimers()
+  if (!isExpanded) expandPanel('user')
+  else pinExpandInteraction()
+
+  popupOpen = true
+  window.rmp.setNotchHoverSuspended?.(true)
+  if (window.rmp?.makeKey) window.rmp.makeKey()
+  window.RMPSheet.open(view, taskId, {
+    getData: () => data,
+    onSave: async (d) => {
+      data = d
+      await window.rmp.write(data)
+      renderBar()
+      if (isExpanded) renderCurrentView()
+    },
+    onClose: () => closeSheet(false),
+    onCommit: () => closeSheet(true),
+    onResize: () => {}
+  })
+}
+
+function closeSheet (wasCommit) {
+  const overlay = document.getElementById('sheet-overlay')
+  const root = document.getElementById('sheet-root')
+  if (overlay) {
+    overlay.classList.add('hidden')
+    overlay.setAttribute('aria-hidden', 'true')
+  }
+  if (root) root.innerHTML = ''
+  popupOpen = false
+  window.rmp.setNotchHoverSuspended?.(false)
+  window.rmp.refreshHover?.()
+  if (wasCommit && isExpanded) renderCurrentView()
+  collapseIfPointerOutsideNotch()
+}
+
 function openForm (taskId) {
-  window.rmp.openPopup('task-form', taskId || null)
+  openSheet('task-form', taskId || null)
 }
 
 // ─── CATEGORY FILTER ──────────────────────────────────────────────────────────
@@ -526,36 +714,80 @@ function setCarouselText (text, animate) {
 
 // ─── EVENTS ───────────────────────────────────────────────────────────────────
 function setupMousePassthrough () {
-  document.addEventListener('mousemove', e => {
-    const el = document.elementFromPoint(e.clientX, e.clientY)
-    const over = el && el !== document.documentElement && el !== document.body
-    window.rmp.ignoreMouse(!over)
-  })
-  document.addEventListener('mouseleave', () => window.rmp.ignoreMouse(true))
+  // Intentionally empty — see comment in setHeight / prior mousemove passthrough bug.
 }
 
-function setupEvents () {
-  document.getElementById('notch-bar').addEventListener('click', togglePanel)
-  document.getElementById('btn-toggle').addEventListener('click', e => { e.stopPropagation(); togglePanel() })
+/** Native NotchPanel tracks the cursor (WKWebView misses transparent areas). */
+function setupNativeHover () {
+  window.rmp.on('notch:hover-enter', () => {
+    if (popupOpen || notchDragActive) return
+    clearHoverTimers()
+    if (!isExpanded) expandPanel('hover')
+    else window.rmp.bringToFront()
+  })
 
-  // Draggable notch
-  let dragging = false, dragStartX = 0, dragStartY = 0
-  const notchEl = document.getElementById('notch-bar')
-  notchEl.addEventListener('mousedown', e => {
-    if (e.button !== 0 || e.target.closest('button')) return
-    dragging = true
+  window.rmp.on('notch:hover-leave', () => {
+    if (popupOpen || !isExpanded || notchDragActive || expandSource !== 'hover') return
+    clearHoverTimers()
+    hoverCollapseTimer = setTimeout(() => {
+      hoverCollapseTimer = null
+      if (!popupOpen && isExpanded && !notchDragActive && expandSource === 'hover') {
+        collapsePanel()
+      }
+    }, HOVER_LEAVE_MS)
+  })
+}
+
+let notchDragActive = false
+
+function setupEvents () {
+  const notchBar = document.getElementById('notch-bar')
+  const appShell = document.getElementById('app-shell')
+  let didDrag = false
+  let dragStartX = null
+  let dragStartY = null
+
+  appShell?.addEventListener('mouseenter', pinExpandInteraction)
+  appShell?.addEventListener('mousedown', pinExpandInteraction, true)
+
+  notchBar.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    window.rmp.bringToFront()
+    didDrag = false
     dragStartX = e.screenX
     dragStartY = e.screenY
   })
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return
+
+  document.addEventListener('mousemove', (e) => {
+    if (dragStartX === null || dragStartY === null) return
     const dx = e.screenX - dragStartX
     const dy = e.screenY - dragStartY
+    if (!didDrag && Math.hypot(dx, dy) < 6) return
+    didDrag = true
+    notchDragActive = true
+    clearHoverTimers()
+    window.rmp.moveWindow(dx, 0)
     dragStartX = e.screenX
     dragStartY = e.screenY
-    window.rmp.moveWindow(dx, dy)
   })
-  document.addEventListener('mouseup', () => { dragging = false })
+
+  document.addEventListener('mouseup', () => {
+    dragStartX = null
+    dragStartY = null
+    notchDragActive = false
+  })
+
+  notchBar.addEventListener('click', (e) => {
+    if (didDrag) { didDrag = false; return }
+    if (e.target.closest('button')) return
+    if (!isExpanded) expandPanel('user')
+    else pinExpandInteraction()
+  })
+
+  document.getElementById('btn-toggle').addEventListener('click', e => {
+    e.stopPropagation()
+    togglePanel()
+  })
 
   // View tabs
   document.querySelectorAll('.tab').forEach(tab => {
@@ -579,13 +811,24 @@ function setupEvents () {
   })
 
   // Footer buttons → open popups
-  document.getElementById('btn-add').addEventListener('click', e => { e.stopPropagation(); openForm(null) })
-  document.getElementById('btn-quick-note').addEventListener('click', e => { e.stopPropagation(); window.rmp.openPopup('quick-note', null) })
-  document.getElementById('btn-settings').addEventListener('click', e => { e.stopPropagation(); window.rmp.openPopup('settings', null) })
+  document.getElementById('btn-add').addEventListener('click', e => {
+    e.stopPropagation()
+    pinExpandInteraction()
+    openForm(null)
+  })
+  document.getElementById('btn-quick-note').addEventListener('click', e => {
+    e.stopPropagation()
+    openSheet('quick-note', null)
+  })
+  document.getElementById('btn-settings').addEventListener('click', e => {
+    e.stopPropagation()
+    openSheet('settings', null)
+  })
 
-  // Escape collapses panel
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && isExpanded) collapsePanel()
+    if (e.key !== 'Escape') return
+    if (popupOpen) { closeSheet(false); return }
+    if (isExpanded) collapsePanel()
   })
 }
 

@@ -8,14 +8,18 @@ contextBridge.exposeInMainWorld('rmp', {
   // Window
   expand: (height) => ipcRenderer.invoke('window:expand', height),
   collapse: () => ipcRenderer.invoke('window:collapse'),
+  setHeight: (h) => ipcRenderer.invoke('window:set-height', h),
 
   // App
   restartApp: () => ipcRenderer.invoke('app:restart'),
   ignoreMouse: (ignore) => ipcRenderer.send('window:ignore-mouse', ignore),
+  bringToFront: () => ipcRenderer.send('window:bring-front'),
 
   // Export
   exportJson: () => ipcRenderer.invoke('export:json'),
   exportCsv: () => ipcRenderer.invoke('export:csv'),
+  exportTxt: (text) => ipcRenderer.invoke('export:txt', text),
+  copyToClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
   openDataFolder: () => ipcRenderer.invoke('data:openFolder'),
 
   // Popup window

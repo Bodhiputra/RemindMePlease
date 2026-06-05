@@ -2,45 +2,55 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>RemindMePlease</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="popup.css" />
+  <link rel="stylesheet" href="ui-polish.css" />
 </head>
 <body>
+  <div id="app-shell" class="app-shell">
 
-  <!-- COLLAPSED BAR -->
-  <div id="notch-bar" class="notch-bar">
-    <div id="bar-carousel" class="bar-carousel">
-      <div id="carousel-text" class="carousel-text"></div>
+    <div id="notch-bar" class="notch-bar">
+      <div id="bar-carousel" class="bar-carousel">
+        <div id="carousel-text" class="carousel-text"></div>
+      </div>
+      <span id="bar-urgent" class="bar-stat urgent hidden">0 due</span>
+      <span id="bar-progress" class="bar-stat muted">0%</span>
+      <button id="btn-toggle" class="bar-btn toggle-btn" title="Open (Cmd+Shift+Space)">▾</button>
     </div>
-    <span id="bar-urgent" class="bar-stat urgent hidden">0 due</span>
-    <span id="bar-progress" class="bar-stat muted">0%</span>
-    <button id="btn-toggle" class="bar-btn toggle-btn" title="Open (Cmd+Shift+Space)">▾</button>
+
+    <div id="panel" class="panel hidden">
+      <div class="view-tabs">
+        <button class="tab active" data-view="master">TodoList</button>
+        <button class="tab" data-view="today">Today</button>
+        <button class="tab" data-view="calendar">Calendar</button>
+        <button class="tab" data-view="category">Category</button>
+      </div>
+      <div class="search-row">
+        <input id="search-input" type="text" placeholder="Search tasks..." class="search-input" />
+        <select id="filter-category" class="filter-select">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div id="task-area" class="task-area"></div>
+      <div id="app-toast" class="app-toast hidden" role="status" aria-live="polite"></div>
+      <div id="sheet-overlay" class="popup-overlay hidden" aria-hidden="true">
+        <div class="popup-backdrop" id="sheet-backdrop"></div>
+        <div id="sheet-root" class="popup-card popup-scrollable"></div>
+      </div>
+      <div class="panel-footer">
+        <button id="btn-add" class="footer-btn primary">+ Task</button>
+        <button id="btn-quick-note" class="footer-btn small">Note</button>
+        <div class="spacer"></div>
+        <button id="btn-settings" class="footer-btn small">Settings</button>
+      </div>
+    </div>
+
   </div>
 
-  <!-- EXPANDED PANEL -->
-  <div id="panel" class="panel hidden">
-    <div class="view-tabs">
-      <button class="tab active" data-view="master">TodoList</button>
-      <button class="tab" data-view="today">Today</button>
-      <button class="tab" data-view="calendar">Calendar</button>
-      <button class="tab" data-view="category">Category</button>
-    </div>
-    <div class="search-row">
-      <input id="search-input" type="text" placeholder="Search tasks..." class="search-input" />
-      <select id="filter-category" class="filter-select">
-        <option value="">All</option>
-      </select>
-    </div>
-    <div id="task-area" class="task-area"></div>
-    <div class="panel-footer">
-      <button id="btn-add" class="footer-btn primary">+ Task</button>
-      <button id="btn-quick-note" class="footer-btn small">Note</button>
-      <div class="spacer"></div>
-      <button id="btn-settings" class="footer-btn small">Settings</button>
-    </div>
-  </div>
-
+  <script src="share-text.js"></script>
+  <script src="popup.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -193,6 +193,22 @@ ipcMain.handle('export:csv', async () => {
   return { success: false }
 })
 
+ipcMain.handle('export:txt', async (_, text) => {
+  const { filePath } = await dialog.showSaveDialog({
+    title: 'Save as Text',
+    defaultPath: `remindmeplease-${Date.now()}.txt`,
+    filters: [{ name: 'Text', extensions: ['txt'] }]
+  })
+  if (filePath) { fs.writeFileSync(filePath, text, 'utf8'); return { success: true } }
+  return { success: false }
+})
+
+ipcMain.handle('clipboard:write', (_, text) => {
+  const { clipboard } = require('electron')
+  clipboard.writeText(text)
+  return true
+})
+
 ipcMain.handle('data:openFolder', () => {
   shell.openPath(path.dirname(storage.getDataFilePath()))
 })

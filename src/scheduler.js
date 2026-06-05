@@ -114,6 +114,9 @@ function completeTask (taskId) {
   if (!task) return
   task.status = 'done'
   task.completedAt = new Date().toISOString()
+  if (task.subtasks?.length) {
+    task.subtasks.forEach(s => { s.done = true })
+  }
   storage.write(data)
   if (win) win.webContents.send('storage:changed')
 }

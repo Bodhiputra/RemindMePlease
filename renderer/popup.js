@@ -1,39 +1,86 @@
-// ─── PARAMS & STATE ───────────────────────────────────────────────────────────
-const params = new URLSearchParams(window.location.search)
-const VIEW    = params.get('view')
-const TASK_ID = params.get('taskId') || null
+(function () {
+'use strict'
 
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let sheetApi = null
 let data = null
 let subtaskDraft = []
 
-// ─── INIT ─────────────────────────────────────────────────────────────────────
-async function init () {
+function sheetClose () {
+  if (sheetApi?.onClose) sheetApi.onClose()
+  else if (window.rmp?.closePopup) window.rmp.closePopup()
+}
+
+function sheetCommit () {
+  if (sheetApi?.onCommit) sheetApi.onCommit()
+  else if (window.rmp?.commitPopup) window.rmp.commitPopup()
+}
+
+async function save () {
+  if (sheetApi?.onSave) await sheetApi.onSave(data)
+  else await window.rmp.write(data)
+}
+
+function resize () {
+  if (sheetApi?.onResize) sheetApi.onResize()
+  else {
+    const legacy = document.getElementById('popup-root')
+    if (legacy && window.rmp?.resizePopup) {
+      requestAnimationFrame(() => {
+        window.rmp.resizePopup(legacy.scrollHeight)
+      })
+    }
+  }
+}
+
+// ─── IN-PANEL SHEET (main notch UI) ───────────────────────────────────────────
+window.RMPSheet = {
+  open (view, taskId, api) {
+    sheetApi = api
+    data = api.getData()
+    data.categories = data.categories || []
+    data.settings = data.settings || {}
+    data.notes = data.notes || []
+
+    const overlay = document.getElementById('sheet-overlay')
+    const root = document.getElementById('sheet-root')
+    if (!overlay || !root) return
+
+    overlay.classList.remove('hidden')
+    overlay.setAttribute('aria-hidden', 'false')
+
+    if (view === 'settings') renderSettings(root)
+    else if (view === 'quick-note') renderQuickNote(root)
+    else if (view === 'task-form') renderTaskForm(root, taskId)
+
+    resize()
+  },
+
+  close: sheetClose
+}
+
+// ─── LEGACY SEPARATE POPUP WINDOW ─────────────────────────────────────────────
+const params = new URLSearchParams(window.location.search)
+const VIEW = params.get('view')
+const TASK_ID = params.get('taskId') || null
+
+async function initLegacyPopup () {
   data = await window.rmp.read()
   data.categories = data.categories || []
-  data.settings   = data.settings   || {}
+  data.settings = data.settings || {}
 
   const root = document.getElementById('popup-root')
+  if (!root) return
 
-  if      (VIEW === 'settings')   renderSettings(root)
+  if (VIEW === 'settings') renderSettings(root)
   else if (VIEW === 'quick-note') renderQuickNote(root)
-  else if (VIEW === 'task-form')  renderTaskForm(root, TASK_ID)
+  else if (VIEW === 'task-form') renderTaskForm(root, TASK_ID)
 
   resize()
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') window.rmp.closePopup()
+    if (e.key === 'Escape') sheetClose()
   })
-}
-
-// ─── RESIZE ───────────────────────────────────────────────────────────────────
-function resize () {
-  requestAnimationFrame(() => {
-    window.rmp.resizePopup(document.getElementById('popup-root').scrollHeight)
-  })
-}
-
-async function save () {
-  await window.rmp.write(data)
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -45,6 +92,14 @@ function renderSettings (root) {
         <button id="btn-close" class="icon-btn">✕</button>
       </div>
       <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-label">Share</div>
+          <div class="settings-row">
+            <button id="btn-copy-all-txt" class="footer-btn small">Copy all as text</button>
+            <button id="btn-save-all-txt" class="footer-btn small">Save .txt</button>
+          </div>
+          <div id="share-feedback" class="settings-hint hidden"></div>
+        </div>
         <div class="settings-section">
           <div class="settings-label">Export data</div>
           <div class="settings-row">
@@ -61,7 +116,27 @@ function renderSettings (root) {
     </div>
   `
 
-  document.getElementById('btn-close').addEventListener('click', () => window.rmp.closePopup())
+  document.getElementById('btn-close').addEventListener('click', () => sheetClose())
+
+  const shareFeedback = document.getElementById('share-feedback')
+  const showShareFeedback = (msg) => {
+    shareFeedback.textContent = msg
+    shareFeedback.classList.remove('hidden')
+    setTimeout(() => shareFeedback.classList.add('hidden'), 2000)
+  }
+
+  document.getElementById('btn-copy-all-txt').addEventListener('click', async () => {
+    const text = formatAllTasksPlain(data)
+    await window.rmp.copyToClipboard(text)
+    showShareFeedback('Copied to clipboard')
+    resize()
+  })
+  document.getElementById('btn-save-all-txt').addEventListener('click', async () => {
+    const text = formatAllTasksPlain(data)
+    const res = await window.rmp.exportTxt(text)
+    if (res?.success) showShareFeedback('Saved')
+    resize()
+  })
 
   document.getElementById('btn-export-json').addEventListener('click', () => window.rmp.exportJson())
   document.getElementById('btn-export-csv').addEventListener('click', () => window.rmp.exportCsv())
@@ -102,7 +177,7 @@ function renderQuickNote (root) {
         </div>
       </div>
     `
-    document.getElementById('btn-close').addEventListener('click', () => window.rmp.closePopup())
+    document.getElementById('btn-close').addEventListener('click', () => sheetClose())
     document.getElementById('btn-new-note').addEventListener('click', () => {
       const note = { id: crypto.randomUUID(), title: '', content: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
       data.notes.unshift(note)
@@ -158,14 +233,16 @@ function renderQuickNote (root) {
       save()
       showList()
     })
-    setTimeout(() => {
+    const focusEditor = () => {
+      if (window.rmp?.makeKey) window.rmp.makeKey()
       if (!note.title && !note.content) {
         titleInput.focus()
       } else {
         textarea.focus()
         textarea.setSelectionRange(textarea.value.length, textarea.value.length)
       }
-    }, 40)
+    }
+    setTimeout(focusEditor, 40)
     resize()
   }
 
@@ -188,6 +265,9 @@ function noteDate (iso) {
 function renderTaskForm (root, taskId) {
   const task = taskId ? data.tasks.find(t => t.id === taskId) : null
   subtaskDraft = task ? (task.subtasks || []).map(s => ({ ...s })) : []
+  if (!subtaskDraft.length) {
+    subtaskDraft.push({ id: crypto.randomUUID(), title: '', done: false })
+  }
 
   const cats = data.categories || []
   const dlVal = task?.deadline ? new Date(task.deadline).toISOString().split('T')[0] : ''
@@ -302,8 +382,8 @@ function renderTaskForm (root, taskId) {
   toggleRecurringOptions()
   toggleRecurringDay()
 
-  document.getElementById('btn-close').addEventListener('click', () => window.rmp.closePopup())
-  document.getElementById('btn-cancel').addEventListener('click', () => window.rmp.closePopup())
+  document.getElementById('btn-close').addEventListener('click', () => sheetClose())
+  document.getElementById('btn-cancel').addEventListener('click', () => sheetClose())
   document.getElementById('btn-save').addEventListener('click', () => saveForm(task))
 
   if (task) {
@@ -311,7 +391,7 @@ function renderTaskForm (root, taskId) {
       task.status = 'archived'
       task.strikethrough = true
       save()
-      window.rmp.commitPopup()
+      sheetCommit()
     })
   }
 
@@ -348,16 +428,13 @@ function renderSubtaskDraft () {
     inp.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return
       e.preventDefault()
-      const idx = parseInt(inp.dataset.subIdx)
-      if (idx === subtaskDraft.length - 1) {
-        subtaskDraft.push({ id: crypto.randomUUID(), title: '', done: false })
-        renderSubtaskDraft()
-        const inputs = document.querySelectorAll('.subtask-form-input')
-        if (inputs.length) inputs[inputs.length - 1].focus()
-        resize()
-      } else {
-        document.querySelectorAll('.subtask-form-input')[idx + 1]?.focus()
-      }
+      const idx = parseInt(inp.dataset.subIdx, 10)
+      subtaskDraft[idx].title = inp.value
+      const insertAt = idx + 1
+      subtaskDraft.splice(insertAt, 0, { id: crypto.randomUUID(), title: '', done: false })
+      renderSubtaskDraft()
+      document.querySelectorAll('.subtask-form-input')[insertAt]?.focus()
+      resize()
     })
   })
   list.querySelectorAll('[data-remove-sub]').forEach(btn => {
@@ -538,7 +615,7 @@ function saveForm (existingTask) {
   }
 
   save()
-  window.rmp.commitPopup()
+  sheetCommit()
 }
 
 // ─── DEADLINE PICKER ──────────────────────────────────────────────────────────
@@ -642,5 +719,8 @@ function escHtml (str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
 
-// ─── START ────────────────────────────────────────────────────────────────────
-init()
+if (document.getElementById('popup-root') && !document.getElementById('sheet-overlay')) {
+  initLegacyPopup()
+}
+
+})();

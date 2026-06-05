@@ -31,12 +31,36 @@ html, body {
 
 /* ─── TASK FORM BODY ─── */
 .popup-task-body {
-  padding: 14px 14px 12px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 11px;
-  max-height: 520px;
+  gap: 10px;
   overflow-y: auto;
+}
+
+.settings-body .settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: #4ade80;
 }
 
 .popup-task-body::-webkit-scrollbar { width: 3px; }
@@ -157,4 +181,26 @@ html, body {
 .note-title-input::placeholder {
   color: var(--text-muted);
   font-weight: 400;
+}
+
+.quick-note-text {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  font-family: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.quick-note-text::placeholder {
+  color: var(--text-muted);
 }

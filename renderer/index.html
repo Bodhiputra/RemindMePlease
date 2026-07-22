@@ -15,23 +15,40 @@
       <div id="bar-carousel" class="bar-carousel">
         <div id="carousel-text" class="carousel-text"></div>
       </div>
-      <span id="bar-urgent" class="bar-stat urgent hidden">0 due</span>
-      <span id="bar-progress" class="bar-stat muted">0%</span>
-      <button id="btn-toggle" class="bar-btn toggle-btn" title="Open (Cmd+Shift+Space)">▾</button>
+      <div id="bar-pomo" class="bar-pomo hidden" aria-label="Focus timer">
+        <span class="bar-pomo-dot" aria-hidden="true"></span>
+        <span id="bar-pomo-time" class="bar-pomo-time">25:00</span>
+        <span id="bar-pomo-label" class="bar-pomo-label">focus</span>
+      </div>
+      <span id="bar-urgent" class="bar-stat urgent hidden"></span>
+      <span id="bar-progress" class="bar-stat muted"></span>
+      <button id="btn-toggle" class="bar-btn toggle-btn" title="Open (⌘⇧Space)" aria-label="Toggle panel">▾</button>
+    </div>
+
+    <div id="pomo-event-overlay" class="pomo-event-overlay hidden" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="pomo-event-card">
+        <div id="pomo-event-icon" class="pomo-event-icon" aria-hidden="true"></div>
+        <h3 id="pomo-event-title" class="pomo-event-title"></h3>
+        <p id="pomo-event-body" class="pomo-event-body"></p>
+        <button type="button" id="pomo-event-ok" class="footer-btn primary pomo-event-ok">Got it</button>
+      </div>
     </div>
 
     <div id="panel" class="panel hidden">
-      <div class="view-tabs">
-        <button class="tab active" data-view="master">TodoList</button>
-        <button class="tab" data-view="today">Today</button>
-        <button class="tab" data-view="calendar">Calendar</button>
-        <button class="tab" data-view="category">Category</button>
+      <div id="toolbar-tasks" class="panel-toolbar">
+        <div class="view-toggle" id="view-toggle" role="tablist" aria-label="View">
+          <button type="button" class="view-toggle-btn active" data-layout="today" role="tab">Today</button>
+          <button type="button" class="view-toggle-btn" data-layout="list" role="tab">All</button>
+        </div>
+        <button type="button" id="btn-search-toggle" class="toolbar-icon-btn" title="Search" aria-label="Search">⌕</button>
       </div>
-      <div class="search-row">
-        <input id="search-input" type="text" placeholder="Search tasks..." class="search-input" />
-        <select id="filter-category" class="filter-select">
-          <option value="">All</option>
-        </select>
+      <div id="toolbar-pomodoro" class="panel-toolbar panel-toolbar--pomo hidden">
+        <button type="button" id="btn-back-tasks" class="panel-back-btn">← Back</button>
+        <span class="panel-title panel-title--pomo">Focus</span>
+        <span class="panel-toolbar-slot" aria-hidden="true"></span>
+      </div>
+      <div id="search-row" class="search-row hidden">
+        <input id="search-input" type="text" placeholder="Search…" class="search-input" />
       </div>
       <div id="task-area" class="task-area"></div>
       <div id="app-toast" class="app-toast hidden" role="status" aria-live="polite"></div>
@@ -40,10 +57,15 @@
         <div id="sheet-root" class="popup-card popup-scrollable"></div>
       </div>
       <div class="panel-footer">
-        <button id="btn-add" class="footer-btn primary">+ Task</button>
-        <button id="btn-quick-note" class="footer-btn small">Note</button>
-        <div class="spacer"></div>
-        <button id="btn-settings" class="footer-btn small">Settings</button>
+        <button id="btn-add" class="footer-btn primary footer-btn--add">+ Add reminder</button>
+        <div class="footer-menu-wrap">
+          <button id="btn-more" class="footer-btn icon-only" title="More" aria-label="More options" aria-expanded="false">···</button>
+          <div id="footer-menu" class="footer-menu hidden" role="menu">
+            <button type="button" class="footer-menu-item" data-action="focus" role="menuitem">Focus timer</button>
+            <button type="button" class="footer-menu-item" data-action="note" role="menuitem">Quick note</button>
+            <button type="button" class="footer-menu-item" data-action="settings" role="menuitem">Settings</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -51,6 +73,7 @@
 
   <script src="share-text.js"></script>
   <script src="popup.js"></script>
+  <script src="focus-timer.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

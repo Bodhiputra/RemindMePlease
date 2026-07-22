@@ -5,6 +5,11 @@ html, body {
 
 /* ─── POPUP WINDOW CHROME ─── */
 .popup-window {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-top: none;
@@ -27,21 +32,44 @@ html, body {
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 /* ─── TASK FORM BODY ─── */
 .popup-task-body {
+  flex: 1;
+  min-height: 0;
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.popup-form-footer {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+}
+
+.popup-form-footer .form-actions {
+  padding-top: 0;
+  margin: 0;
 }
 
 .settings-body .settings-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-label {
@@ -66,6 +94,58 @@ html, body {
 .popup-task-body::-webkit-scrollbar { width: 3px; }
 .popup-task-body::-webkit-scrollbar-track { background: transparent; }
 .popup-task-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ─── SIMPLE FORM ─── */
+.form-simple {
+  gap: 14px;
+}
+
+.form-input--hero {
+  font-size: 16px;
+  font-weight: 500;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  letter-spacing: -0.02em;
+}
+
+.reminder-hero {
+  padding: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.reminder-hero-toggle {
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.form-time-compact {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.form-more {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.form-more summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.form-more summary::-webkit-details-marker { display: none; }
+
+.form-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+}
 
 /* ─── CATEGORY COMBOBOX ─── */
 .combo-wrap { position: relative; flex: 1; }

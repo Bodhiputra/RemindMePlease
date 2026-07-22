@@ -5,7 +5,8 @@
   "productName": "RemindMePlease",
   "main": "main.js",
   "scripts": {
-    "start": "echo 'Use ./restart.sh or open RemindMePlease-Swift/RemindMePlease.app (Swift). Electron is legacy.' && exit 1",
+    "start": "echo 'Use ./dev.sh (hot reload) or ./restart.sh (full rebuild). Electron is legacy.' && exit 1",
+    "dev": "./dev.sh",
     "start:electron": "electron .",
     "start:swift": "./restart.sh",
     "build": "electron-builder --mac"

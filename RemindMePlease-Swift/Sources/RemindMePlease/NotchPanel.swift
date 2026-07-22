@@ -75,7 +75,9 @@ final class NotchPanel: NSPanel {
     }
 
     func bringToFront() {
+        NSApp.activate(ignoringOtherApps: true)
         orderFrontRegardless()
+        makeKeyAndOrderFront(nil)
     }
 
     func pushGeometryToWeb() {
@@ -112,6 +114,7 @@ final class NotchPanel: NSPanel {
     func setHeight(_ totalHeight: CGFloat) {
         let minH = metrics.collapsedWindowHeight
         let h = min(max(totalHeight, minH), NotchGeometry.expandedMaxHeight)
+        isExpanded = h > minH + 1
         applyFrame(on: Self.menuBarScreen(), totalHeight: h, animate: false)
     }
 
@@ -248,11 +251,17 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if contentView?.performKeyEquivalent(with: event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown {
             ignoresMouseEvents = false
             orderFrontRegardless()
             // WKWebView needs a key window for Cmd+C / Cmd+V / cut / paste in text fields.
+            NSApp.activate(ignoringOtherApps: true)
             makeKeyAndOrderFront(nil)
         }
         super.sendEvent(event)

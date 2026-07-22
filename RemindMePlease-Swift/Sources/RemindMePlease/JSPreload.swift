@@ -42,6 +42,8 @@ enum JSPreload {
     exportCsv:     function ()        { return invoke('export:csv'); },
     exportTxt:     function (text)    { return invoke('export:txt', text); },
     copyToClipboard:function (text)   { return invoke('clipboard:write', text); },
+    notify:        function (payload) { return invoke('notification:show', payload); },
+    confetti:      function ()        { send('keyboard:confetti'); },
     openDataFolder:function ()        { return invoke('data:openFolder'); },
     openPopup:     function (v, tid)  { return invoke('popup:open', { view: v, taskId: tid || null }); },
     closePopup:    function ()        { return invoke('popup:close'); },

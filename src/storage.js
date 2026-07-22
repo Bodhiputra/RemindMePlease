@@ -15,8 +15,15 @@ const DEFAULT_DATA = {
   settings: {
     keyboardShortcut: 'CommandOrControl+Shift+Space',
     theme: 'dark',
-    defaultView: 'master',
-    useIcons: false
+    defaultView: 'list',
+    listViewMode: 'list',
+    useIcons: false,
+    pomodoro: {
+      workMinutes: 25,
+      shortBreakMinutes: 5,
+      longBreakMinutes: 20,
+      sessionsBeforeLongBreak: 4
+    }
   },
   quickNote: ''
 }

@@ -1,6 +1,8 @@
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let data = { tasks: [], categories: [], weeklyHistory: [], settings: {}, quickNote: '' }
-let currentView   = 'master'
+let listViewMode  = 'list'
+/** 'tasks' | 'pomodoro' — Pomodoro is a separate panel, not a list layout. */
+let panelMode     = 'tasks'
 let isExpanded    = false
 /** 'hover' = peek (auto-collapse on leave); 'user' = clicked/toggled (stay open). */
 let expandSource  = null
@@ -12,6 +14,8 @@ let searchQuery   = ''
 let filterCategory = ''
 let carouselTimer = null
 let carouselIdx   = 0
+let searchOpen = false
+let footerMenuOpen = false
 let hoverCollapseTimer = null
 let toastTimer = null
 const HOVER_LEAVE_MS = 200
@@ -52,12 +56,31 @@ function applyNotchGeometry (geo) {
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init () {
   data = await window.rmp.read()
+  window.RMPFocus?.ensureDefaults(data)
+  listViewMode = migrateListViewMode(data.settings)
   try {
     applyNotchGeometry(await window.rmp.getGeometry())
   } catch (_) { /* fallback defaults */ }
   renderBar()
   setupEvents()
+  syncViewToggleUI()
   setupMousePassthrough()
+
+  window.RMPFocus?.init({
+    getData: () => data,
+    getFocusableTasks: () => getFocusableTasksForPomo(),
+    getCurrentView: () => (panelMode === 'pomodoro' ? 'pomodoro' : listViewMode),
+    onSave: async () => { await save() },
+    onBarUpdate: () => renderBar(),
+    onToast: (msg) => showToast(msg),
+    onPomoEvent: (event) => showPomoEvent(event),
+    onConfetti: () => fireConfetti(),
+    onPulse: () => {
+      document.getElementById('notch-bar').classList.add('pulsing')
+      setTimeout(() => document.getElementById('notch-bar').classList.remove('pulsing'), 3000)
+    },
+    onNotify: (payload) => window.rmp.notify?.(payload)
+  })
 
   window.rmp.on('notch:geometry', applyNotchGeometry)
   setupNativeHover()
@@ -98,11 +121,126 @@ async function init () {
 
 // ─── BAR ──────────────────────────────────────────────────────────────────────
 
+function todayKey () {
+  return new Date().toISOString().split('T')[0]
+}
+
+function formatTime12 (time) {
+  const [h, m] = String(time || '09:00').split(':').map(Number)
+  const d = new Date()
+  d.setHours(h, m, 0, 0)
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+function reminderTag (task) {
+  const r = task.reminder
+  if (!r || r.type === 'never') return ''
+  if (r.type === 'at-time' && r.date && r.time) {
+    const t = formatTime12(r.time)
+    if (r.date === todayKey()) return `<span class="tag remind">🔔 ${t}</span>`
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    if (r.date === tomorrow.toISOString().split('T')[0]) {
+      return `<span class="tag remind">🔔 tomorrow ${t}</span>`
+    }
+    return `<span class="tag remind">🔔 ${r.date} ${t}</span>`
+  }
+  if (r.type === 'always' && r.time) {
+    return `<span class="tag remind">🔔 daily ${formatTime12(r.time)}</span>`
+  }
+  return ''
+}
+
+function taskSubtitle (task) {
+  const r = task.reminder
+  if (r?.type === 'at-time' && r.date && r.time) {
+    const t = formatTime12(r.time)
+    if (r.date === todayKey()) return { text: `Remind at ${t}`, cls: 'remind' }
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    if (r.date === tomorrow.toISOString().split('T')[0]) return { text: `Tomorrow ${t}`, cls: 'remind' }
+    return { text: `${r.date} · ${t}`, cls: 'remind' }
+  }
+  if (r?.type === 'always' && r.time) {
+    return { text: `Every day at ${formatTime12(r.time)}`, cls: 'remind' }
+  }
+  if (task.deadline && task.status !== 'done') {
+    const diff = Math.ceil((new Date(task.deadline) - new Date()) / (1000 * 60 * 60 * 24))
+    if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, cls: 'overdue' }
+    if (diff === 0) return { text: 'Due today', cls: 'soon' }
+    if (diff === 1) return { text: 'Due tomorrow', cls: 'soon' }
+    return { text: `Due ${new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, cls: '' }
+  }
+  if (task.category) return { text: task.category, cls: '' }
+  return null
+}
+
+function getBarCarouselText () {
+  const active = data.tasks.filter(t => t.status !== 'done' && t.status !== 'archived')
+  const key = todayKey()
+  const reminders = active
+    .filter(t => t.reminder?.type === 'at-time' && t.reminder.date === key && t.reminder.time)
+    .sort((a, b) => (a.reminder.time || '').localeCompare(b.reminder.time || ''))
+  if (reminders.length) {
+    const next = reminders[0]
+    return `🔔 ${next.title} · ${formatTime12(next.reminder.time)}`
+  }
+  const { activeToday } = getTodayBuckets()
+  if (activeToday.length) return `${activeToday.length} for today`
+  if (active.length) return active[0].title
+  return 'Add a reminder'
+}
+
+function todayStart () {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return now
+}
+
+/** Task manually added to today's plan. */
+function isPlannedForToday (t, key = todayKey()) {
+  if (t.status === 'archived') return false
+  return t.plannedFor === key
+}
+
+function deadlineIsToday (t) {
+  if (!t.deadline) return false
+  const d = new Date(t.deadline)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime() === todayStart().getTime()
+}
+
+/** Today view + progress: planned for today OR deadline is today. */
+function isOnTodayList (t) {
+  if (t.status === 'archived') return false
+  return isPlannedForToday(t) || deadlineIsToday(t)
+}
+
+function isTodayTask (t) {
+  return isOnTodayList(t)
+}
+
+function getTodayBuckets () {
+  const activeToday = data.tasks.filter(t => isOnTodayList(t) && t.status !== 'done')
+  const doneToday = data.tasks.filter(t => isOnTodayList(t) && t.status === 'done')
+  return { activeToday, doneToday }
+}
+
+function getFocusableTasksForPomo () {
+  return getTodayBuckets().activeToday
+}
+
+function getTodayProgressStats () {
+  const todayTasks = data.tasks.filter(t => isOnTodayList(t))
+  const done = todayTasks.filter(t => t.status === 'done').length
+  const total = todayTasks.length
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+  return { done, total, pct }
+}
+
 function renderBar () {
   const active = data.tasks.filter(t => t.status !== 'archived')
-  const done   = active.filter(t => t.status === 'done').length
-  const total  = active.length
-  const pct    = total > 0 ? Math.round((done / total) * 100) : 0
+  const { done, total, pct } = getTodayProgressStats()
 
   const now = new Date()
   const urgent = active.filter(t => {
@@ -117,10 +255,142 @@ function renderBar () {
   } else {
     urgentEl.classList.add('hidden')
   }
-  const progressText = total > 0 ? `${pct}% · ${done}/${total}` : '—'
-  document.getElementById('bar-progress').textContent = progressText
-  window.rmp.setTrayTitle(total > 0 ? ` ${pct}%` : '')
-  startCarousel()
+  const progressText = total > 0 ? `${done}/${total}` : ''
+  const progressEl = document.getElementById('bar-progress')
+  if (progressEl) {
+    progressEl.textContent = progressText
+    progressEl.classList.toggle('hidden', !progressText)
+  }
+
+  const notch = document.getElementById('notch-bar')
+  const carousel = document.getElementById('bar-carousel')
+  const barPomo = document.getElementById('bar-pomo')
+  const pomoActive = window.RMPFocus?.isActive?.()
+
+  if (pomoActive) {
+    if (carouselTimer) clearInterval(carouselTimer)
+    carousel?.classList.add('hidden')
+    barPomo?.classList.remove('hidden')
+    const timeEl = document.getElementById('bar-pomo-time')
+    const labelEl = document.getElementById('bar-pomo-label')
+    if (timeEl) timeEl.textContent = window.RMPFocus.barTime()
+    const taskTitle = window.RMPFocus.linkedTaskTitle?.()
+    const phase = window.RMPFocus.barPhaseShort()
+    if (labelEl) {
+      if (taskTitle && phase === 'focus') {
+        labelEl.textContent = taskTitle.length > 28 ? `${taskTitle.slice(0, 26)}…` : taskTitle
+      } else {
+        labelEl.textContent = phase
+      }
+    }
+    barPomo?.classList.toggle('break', window.RMPFocus.isBreakPhase?.())
+    notch?.classList.toggle('bar-pomo-break', window.RMPFocus.isBreakPhase?.())
+    notch?.classList.add('focus-active')
+    window.rmp.setTrayTitle(window.RMPFocus.trayLabel() || (total > 0 ? ` ${pct}%` : ''))
+  } else {
+    carousel?.classList.remove('hidden')
+    barPomo?.classList.add('hidden')
+    notch?.classList.remove('focus-active', 'bar-pomo-break')
+    window.rmp.setTrayTitle(total > 0 ? ` ${pct}%` : '')
+    startCarousel()
+  }
+}
+
+function showPomoEvent (event) {
+  const overlay = document.getElementById('pomo-event-overlay')
+  if (!overlay || !event) return
+
+  clearHoverTimers()
+  expandSource = 'event'
+  if (!isExpanded) expandPanel('event')
+  else window.rmp.bringToFront?.()
+
+  if (panelMode !== 'pomodoro') {
+    panelMode = 'pomodoro'
+    syncPanelChrome()
+    renderPomodoro()
+  }
+
+  const iconEl = document.getElementById('pomo-event-icon')
+  const titleEl = document.getElementById('pomo-event-title')
+  const bodyEl = document.getElementById('pomo-event-body')
+  const okBtn = document.getElementById('pomo-event-ok')
+
+  const phase = event.completedPhase || event.nextPhase
+  const isWorkComplete = event.completedPhase === 'work'
+  const isLong = phase === 'longBreak' || event.nextPhase === 'longBreak'
+
+  if (iconEl) {
+    iconEl.textContent = isWorkComplete ? '🍅' : (isLong ? '☕' : '🚶')
+    iconEl.classList.toggle('break', !isWorkComplete)
+  }
+  if (titleEl) titleEl.textContent = event.title || 'Pomodoro'
+  if (bodyEl) bodyEl.textContent = event.body || ''
+
+  overlay.classList.remove('hidden')
+  overlay.setAttribute('aria-hidden', 'false')
+  window.rmp.makeKey?.()
+
+  let dismissTimer = null
+  const dismiss = () => {
+    if (dismissTimer) clearTimeout(dismissTimer)
+    overlay.classList.add('hidden')
+    overlay.setAttribute('aria-hidden', 'true')
+    okBtn?.removeEventListener('click', dismiss)
+  }
+  okBtn?.addEventListener('click', dismiss)
+  dismissTimer = setTimeout(dismiss, 4000)
+}
+
+function fireConfetti () {
+  const shell = document.getElementById('app-shell')
+  if (!shell) return
+
+  const canvas = document.createElement('canvas')
+  canvas.className = 'pomo-confetti-canvas'
+  const w = shell.clientWidth
+  const h = shell.clientHeight
+  canvas.width = w
+  canvas.height = h
+  shell.appendChild(canvas)
+
+  const ctx = canvas.getContext('2d')
+  const colors = ['#e85d4c', '#4ade80', '#fbbf24', '#fafafa', '#f87171', '#86efac']
+  const particles = Array.from({ length: 90 }, () => ({
+    x: Math.random() * w,
+    y: -8 - Math.random() * 40,
+    w: 5 + Math.random() * 7,
+    h: 3 + Math.random() * 5,
+    vx: (Math.random() - 0.5) * 5,
+    vy: 2 + Math.random() * 5,
+    rot: Math.random() * Math.PI,
+    vr: (Math.random() - 0.5) * 0.2,
+    color: colors[Math.floor(Math.random() * colors.length)]
+  }))
+
+  let frame = 0
+  const tick = () => {
+    ctx.clearRect(0, 0, w, h)
+    particles.forEach(p => {
+      p.x += p.vx
+      p.y += p.vy
+      p.vy += 0.12
+      p.rot += p.vr
+      ctx.save()
+      ctx.translate(p.x, p.y)
+      ctx.rotate(p.rot)
+      ctx.fillStyle = p.color
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h)
+      ctx.restore()
+    })
+    frame += 1
+    if (frame < 130) requestAnimationFrame(tick)
+    else canvas.remove()
+  }
+  requestAnimationFrame(tick)
+
+  // Optional: also ping system confetti shortcut if something listens for ⌃L
+  window.rmp.confetti?.()
 }
 
 // ─── TOGGLE ───────────────────────────────────────────────────────────────────
@@ -154,7 +424,8 @@ function expandPanel (source = 'user') {
   setTimeout(() => panel.classList.remove('panel-entering'), 180)
   document.getElementById('btn-toggle').textContent = '▴'
   renderCurrentView()
-  populateCategoryFilter()
+  syncViewToggleUI()
+  syncPanelChrome()
 }
 
 function clearHoverTimers () {
@@ -209,12 +480,100 @@ async function collapseIfPointerOutsideNotch () {
 }
 
 // ─── VIEW ROUTING ─────────────────────────────────────────────────────────────
+
+function migrateListViewMode (settings) {
+  const raw = settings?.listViewMode || settings?.defaultView || 'today'
+  if (raw === 'pomodoro' || raw === 'focus') return 'today'
+  const map = {
+    master: 'list',
+    list: 'list',
+    today: 'today',
+    category: 'list',
+    calendar: 'list'
+  }
+  return map[raw] || 'today'
+}
+
+function openPomodoro () {
+  panelMode = 'pomodoro'
+  syncPanelChrome()
+  renderPomodoro()
+  if (window.rmp?.makeKey) window.rmp.makeKey()
+}
+
+function showTasksPanel () {
+  panelMode = 'tasks'
+  syncPanelChrome()
+  renderCurrentView()
+}
+
+function syncPanelChrome () {
+  document.getElementById('toolbar-tasks')?.classList.toggle('hidden', panelMode !== 'tasks')
+  document.getElementById('toolbar-pomodoro')?.classList.toggle('hidden', panelMode !== 'pomodoro')
+  document.getElementById('btn-add')?.classList.toggle('hidden', panelMode === 'pomodoro')
+  updateSearchRowVisibility()
+}
+
+function closeFooterMenu () {
+  footerMenuOpen = false
+  document.getElementById('footer-menu')?.classList.add('hidden')
+  document.getElementById('btn-more')?.setAttribute('aria-expanded', 'false')
+}
+
+function toggleFooterMenu () {
+  footerMenuOpen = !footerMenuOpen
+  document.getElementById('footer-menu')?.classList.toggle('hidden', !footerMenuOpen)
+  document.getElementById('btn-more')?.setAttribute('aria-expanded', footerMenuOpen ? 'true' : 'false')
+}
+
+function setListViewMode (mode) {
+  listViewMode = mode
+  if (!data.settings) data.settings = {}
+  data.settings.listViewMode = mode
+  syncViewToggleUI()
+  updateSearchRowVisibility()
+  renderCurrentView()
+  save()
+}
+
+function syncViewToggleUI () {
+  document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    const on = btn.dataset.layout === listViewMode
+    btn.classList.toggle('active', on)
+    btn.setAttribute('aria-selected', on ? 'true' : 'false')
+  })
+}
+
 function renderCurrentView () {
-  if (currentView === 'master')   renderMaster()
-  if (currentView === 'today')    renderToday()
-  if (currentView === 'calendar') renderCalendar()
-  if (currentView === 'category') renderCategory()
+  if (panelMode === 'pomodoro') {
+    renderPomodoro()
+    syncPanelChrome()
+    return
+  }
+  switch (listViewMode) {
+    case 'list': renderMaster(); break
+    case 'today': renderToday(); break
+    default: renderToday(); break
+  }
+  syncPanelChrome()
   updateExpandHeight()
+}
+
+function renderPomodoro () {
+  window.RMPFocus?.render(document.getElementById('task-area'))
+}
+
+function updateSearchRowVisibility () {
+  const row = document.getElementById('search-row')
+  const btn = document.getElementById('btn-search-toggle')
+  const showRow = panelMode === 'tasks' && searchOpen && listViewMode === 'list'
+  if (row) row.classList.toggle('hidden', !showRow)
+  btn?.classList.toggle('active', searchOpen && listViewMode === 'list')
+  if (listViewMode !== 'list') {
+    searchOpen = false
+    if (row) row.classList.add('hidden')
+    btn?.classList.remove('active')
+  }
 }
 
 function updateExpandHeight () {
@@ -243,7 +602,12 @@ function renderMaster () {
   })
 
   if (tasks.length === 0) {
-    area.innerHTML = '<div class="empty-msg">No tasks yet — add one below</div>'
+    area.innerHTML = `
+      <div class="empty-msg">
+        <span class="empty-icon">✓</span>
+        All clear
+        <span class="empty-hint">Tap <strong>+ Add reminder</strong> to remember something.</span>
+      </div>`
     return
   }
   area.innerHTML = ''
@@ -251,35 +615,40 @@ function renderMaster () {
 }
 
 // ─── TODAY VIEW ───────────────────────────────────────────────────────────────
+function sortTodaySection (tasks) {
+  return [...tasks].sort((a, b) => {
+    if (a.status === 'done' && b.status !== 'done') return 1
+    if (b.status === 'done' && a.status !== 'done') return -1
+    return (a.order ?? 0) - (b.order ?? 0)
+  })
+}
+
 function renderToday () {
   const area = document.getElementById('task-area')
-  const now  = new Date(); now.setHours(0, 0, 0, 0)
-
-  const overdue = data.tasks.filter(t => !['done','archived'].includes(t.status) && t.deadline && new Date(t.deadline) < now)
-  const today   = data.tasks.filter(t => {
-    if (['done','archived'].includes(t.status) || !t.deadline) return false
-    const d = new Date(t.deadline); d.setHours(0,0,0,0)
-    return d.getTime() === now.getTime()
-  })
-  const overdueIds = new Set(overdue.map(t => t.id))
-  const todayIds   = new Set(today.map(t => t.id))
-  const pinned = data.tasks.filter(t =>
-    t.pinnedToToday &&
-    !['done','archived'].includes(t.status) &&
-    !overdueIds.has(t.id) &&
-    !todayIds.has(t.id)
-  )
+  const { activeToday, doneToday } = getTodayBuckets()
 
   area.innerHTML = ''
 
-  if (!overdue.length && !today.length && !pinned.length) {
-    area.innerHTML = '<div class="empty-msg">You\'re all clear today</div>'
+  if (!activeToday.length && !doneToday.length) {
+    area.innerHTML = `
+      <div class="empty-msg">
+        <span class="empty-icon">☀️</span>
+        Nothing for today
+        <span class="empty-hint">Add a reminder — e.g. buy eggs at 12 PM.</span>
+      </div>`
     return
   }
 
-  if (overdue.length) { area.innerHTML += `<div class="section-header">Overdue</div>`; overdue.forEach(t => area.appendChild(buildTaskEl(t))) }
-  if (today.length)   { area.innerHTML += `<div class="section-header">Due Today</div>`; today.forEach(t => area.appendChild(buildTaskEl(t))) }
-  if (pinned.length)  { area.innerHTML += `<div class="section-header">Pinned to Today</div>`; pinned.forEach(t => area.appendChild(buildTaskEl(t))) }
+  const appendSection = (title, tasks) => {
+    const header = document.createElement('div')
+    header.className = 'section-header'
+    header.textContent = title
+    area.appendChild(header)
+    sortTodaySection(tasks).forEach(t => area.appendChild(buildTaskEl(t)))
+  }
+
+  if (activeToday.length) appendSection('Today', activeToday)
+  if (doneToday.length) appendSection('Done', doneToday)
 }
 
 // ─── CALENDAR VIEW ────────────────────────────────────────────────────────────
@@ -289,11 +658,8 @@ function renderCalendar () {
   const month = calendarDate.getMonth()
   const monthName = calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
-  // tasksByDate[day] = { due: [], doing: [] }
-  // "due"   = tasks whose deadline falls on this date
-  // "doing" = tasks pinned to today (only on today's date)
   const tasksByDate = {}
-  const ensure = key => { if (!tasksByDate[key]) tasksByDate[key] = { due: [], doing: [] } }
+  const ensure = key => { if (!tasksByDate[key]) tasksByDate[key] = [] }
 
   data.tasks.forEach(t => {
     if (!t.deadline || t.status === 'archived') return
@@ -301,24 +667,12 @@ function renderCalendar () {
     if (d.getFullYear() === year && d.getMonth() === month) {
       const key = d.getDate()
       ensure(key)
-      tasksByDate[key].due.push(t)
+      tasksByDate[key].push(t)
     }
   })
 
-  const today    = new Date()
-  const todayKey = today.getDate()
-  if (today.getFullYear() === year && today.getMonth() === month) {
-    data.tasks.forEach(t => {
-      if (!t.pinnedToToday || t.status === 'archived') return
-      ensure(todayKey)
-      // avoid duplicate if task also has today as its deadline
-      if (!tasksByDate[todayKey].due.find(x => x.id === t.id)) {
-        tasksByDate[todayKey].doing.push(t)
-      }
-    })
-  }
-
-  const firstDay    = new Date(year, month, 1).getDay()
+  const today = new Date()
+  const firstDay = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
 
   const dayLabels = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<div class="cal-day-label">${d}</div>`).join('')
@@ -328,14 +682,13 @@ function renderCalendar () {
     const isToday    = today.getDate() === d && today.getMonth() === month && today.getFullYear() === year
     const isSelected = calendarSelectedDay === d
     const entry      = tasksByDate[d]
-    const allTasks   = entry ? [...entry.due, ...entry.doing] : []
-    const hasOverdue = entry?.due.some(t => t.status !== 'done' && new Date(t.deadline) < today)
-    const hasDoing   = entry?.doing.length > 0
+    const allTasks   = entry || []
+    const hasOverdue = allTasks.some(t => t.status !== 'done' && new Date(t.deadline) < today)
     const allDone    = allTasks.length > 0 && allTasks.every(t => t.status === 'done')
 
     let countHtml = ''
     if (allTasks.length) {
-      const cls = hasOverdue ? 'overdue' : allDone ? 'done' : hasDoing ? 'doing' : 'pending'
+      const cls = hasOverdue ? 'overdue' : allDone ? 'done' : 'pending'
       countHtml = `<span class="cal-task-count ${cls}">${allTasks.length}</span>`
     }
 
@@ -384,51 +737,41 @@ function renderCalendar () {
         return
       }
       calendarSelectedDay = day
-      const entry = tasksByDate[day] || { due: [], doing: [] }
+      const tasks = tasksByDate[day] || []
       const label = new Date(year, month, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-      showCalendarDayPanel(entry, label)
+      showCalendarDayPanel(tasks, label)
       area.querySelectorAll('.cal-day').forEach(c => c.classList.remove('selected'))
       el.classList.add('selected')
     })
   })
 
-  if (calendarSelectedDay !== null && tasksByDate[calendarSelectedDay] !== undefined) {
-    const entry = tasksByDate[calendarSelectedDay] || { due: [], doing: [] }
+  if (calendarSelectedDay !== null) {
+    const tasks = tasksByDate[calendarSelectedDay] || []
     const label = new Date(year, month, calendarSelectedDay).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-    showCalendarDayPanel(entry, label)
+    showCalendarDayPanel(tasks, label)
+    area.querySelector(`.cal-day[data-day="${calendarSelectedDay}"]`)?.classList.add('selected')
   }
 }
 
-function showCalendarDayPanel (entry, label) {
+function showCalendarDayPanel (tasks, label) {
   const panel = document.getElementById('cal-day-panel')
   if (!panel) return
 
-  const { due = [], doing = [] } = entry
   panel.innerHTML = `<div class="cal-panel-header">${label}</div>`
 
-  if (!due.length && !doing.length) {
-    panel.innerHTML += '<div class="cal-panel-empty">No tasks scheduled</div>'
+  if (!tasks.length) {
+    const empty = document.createElement('div')
+    empty.className = 'cal-panel-empty'
+    empty.textContent = 'No tasks scheduled'
+    panel.appendChild(empty)
     updateExpandHeight()
     return
   }
 
-  if (due.length) {
-    const section = document.createElement('div')
-    section.innerHTML = `<div class="cal-panel-section-label deadline-label">Deadline</div>`
-    const list = document.createElement('div')
-    due.forEach(t => list.appendChild(buildTaskEl(t)))
-    section.appendChild(list)
-    panel.appendChild(section)
-  }
-
-  if (doing.length) {
-    const section = document.createElement('div')
-    section.innerHTML = `<div class="cal-panel-section-label doing-label">Doing Today</div>`
-    const list = document.createElement('div')
-    doing.forEach(t => list.appendChild(buildTaskEl(t)))
-    section.appendChild(list)
-    panel.appendChild(section)
-  }
+  const list = document.createElement('div')
+  list.className = 'cal-panel-tasks'
+  tasks.forEach(t => list.appendChild(buildTaskEl(t)))
+  panel.appendChild(list)
 
   updateExpandHeight()
 }
@@ -451,7 +794,10 @@ function renderCategory () {
   }
 
   Object.entries(categories).sort().forEach(([cat, tasks]) => {
-    area.innerHTML += `<div class="section-header">${cat} (${tasks.length})</div>`
+    const header = document.createElement('div')
+    header.className = 'section-header'
+    header.textContent = `${cat} (${tasks.length})`
+    area.appendChild(header)
     tasks.forEach(t => area.appendChild(buildTaskEl(t)))
   })
 }
@@ -474,54 +820,20 @@ function buildTaskEl (task) {
 
   const isDone   = task.status === 'done'
   const isStrike = isDone
-
-  let deadlineTag = ''
-  if (task.deadline) {
-    const diff = Math.ceil((new Date(task.deadline) - new Date()) / (1000 * 60 * 60 * 24))
-    let cls = 'deadline', label = ''
-    if (diff < 0)      { cls = 'deadline overdue'; label = `${Math.abs(diff)}d overdue` }
-    else if (diff === 0) { cls = 'deadline soon';   label = 'due today' }
-    else if (diff === 1) { cls = 'deadline soon';   label = 'tomorrow' }
-    else if (diff <= 3)  { cls = 'deadline soon';   label = `${diff}d left` }
-    else label = new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    deadlineTag = `<span class="tag ${cls}">${label}</span>`
-  }
-
-  const agentTag = task.addedBy && task.addedBy !== 'user' ? `<span class="tag agent">via ${task.addedBy}</span>` : ''
-  const catTag   = task.category                           ? `<span class="tag category">${task.category}</span>` : ''
-  const recTag   = task.recurring?.enabled                 ? `<span class="tag recurring">${task.recurring.interval}</span>` : ''
-
-  let subtaskHTML = ''
-  if (task.subtasks?.length) {
-    const doneSubs = task.subtasks.filter(s => s.done).length
-    const pct = Math.round((doneSubs / task.subtasks.length) * 100)
-    subtaskHTML = `
-      <div class="subtask-progress">
-        <div class="subtask-bar-bg"><div class="subtask-bar-fill" style="width:${pct}%"></div></div>
-        <span class="subtask-count">${doneSubs}/${task.subtasks.length}</span>
-      </div>
-      <div class="subtask-inline">
-        ${task.subtasks.map(s => `
-          <div class="subtask-inline-item">
-            <div class="subtask-inline-check ${s.done ? 'done' : ''}" data-sub-id="${s.id}" data-task-id="${task.id}">${s.done ? '✓' : ''}</div>
-            <span class="subtask-inline-title ${s.done ? 'done' : ''}">${escHtml(s.title)}</span>
-          </div>
-        `).join('')}
-      </div>`
-  }
+  const sub = taskSubtitle(task)
+  const subHtml = sub
+    ? `<div class="task-subtitle${sub.cls ? ` ${sub.cls}` : ''}">${escHtml(sub.text)}</div>`
+    : ''
 
   el.innerHTML = `
     <div class="task-main">
-      <div class="task-check ${isDone ? 'done' : ''}" role="button" aria-label="${isDone ? 'Mark incomplete' : 'Mark complete'}" tabindex="0" data-tooltip="${isDone ? 'Mark incomplete' : 'Mark complete'}"></div>
+      <div class="task-check ${isDone ? 'done' : ''}" role="button" aria-label="${isDone ? 'Mark incomplete' : 'Mark complete'}" tabindex="0"></div>
       <span class="task-title task-title--clickable ${isStrike ? 'strike' : ''}">${escHtml(task.title)}</span>
       <div class="task-actions">
-        <button type="button" class="task-action-btn task-today-btn ${task.pinnedToToday ? 'pinned' : ''}" data-tooltip="${task.pinnedToToday ? 'Unpin from Today' : 'Pin to Today'}">${task.pinnedToToday ? 'Pinned' : 'Today'}</button>
-        <button type="button" class="task-icon-btn task-copy-btn" data-tooltip="Copy" aria-label="Copy task">⎘</button>
-        <button type="button" class="task-icon-btn task-icon-btn--danger task-delete-btn" data-tooltip="Delete" aria-label="Delete task">🗑</button>
+        <button type="button" class="task-icon-btn task-delete-btn" data-tooltip="Delete" aria-label="Delete">✕</button>
       </div>
     </div>
-    <div class="task-meta">${deadlineTag}${catTag}${agentTag}${recTag}</div>
-    ${subtaskHTML}
+    ${subHtml}
   `
 
   el.querySelector('.task-title').addEventListener('click', e => {
@@ -535,21 +847,9 @@ function buildTaskEl (task) {
     cycleStatus(task.id)
   })
 
-  el.querySelector('.task-today-btn').addEventListener('click', e => {
-    e.stopPropagation()
-    task.pinnedToToday = !task.pinnedToToday
-    save()
-  })
-  el.querySelector('.task-copy-btn').addEventListener('click', e => {
-    e.stopPropagation()
-    copyTaskToClipboard(task, e.currentTarget)
-  })
   el.querySelector('.task-delete-btn').addEventListener('click', e => {
     e.stopPropagation()
     deleteTask(task.id)
-  })
-  el.querySelectorAll('.subtask-inline-check').forEach(chk => {
-    chk.addEventListener('click', e => { e.stopPropagation(); toggleSubtask(chk.dataset.taskId, chk.dataset.subId) })
   })
   el.addEventListener('dragstart', e => {
     if (e.target.closest('.task-action-btn, .task-icon-btn, .subtask-inline')) { e.preventDefault(); return }
@@ -585,6 +885,20 @@ function deleteTask (id) {
   showToast('Task deleted')
 }
 
+function toggleTodayPlan (id) {
+  const task = data.tasks.find(t => t.id === id)
+  if (!task || task.status === 'archived') return
+  const key = todayKey()
+  if (task.plannedFor === key) {
+    task.plannedFor = null
+    showToast('Removed from today')
+  } else {
+    task.plannedFor = key
+    showToast('Added to today')
+  }
+  save()
+}
+
 function syncSubtasksWithTaskStatus (task) {
   if (!task?.subtasks?.length) return
   if (task.status === 'done') {
@@ -606,8 +920,13 @@ async function copyTaskToClipboard (task, btn) {
   await window.rmp.copyToClipboard(task.title)
   showToast('Title copied')
   if (btn) {
+    const prev = btn.textContent
+    btn.textContent = 'Copied'
     btn.classList.add('copied')
-    setTimeout(() => btn.classList.remove('copied'), 1500)
+    setTimeout(() => {
+      btn.textContent = prev
+      btn.classList.remove('copied')
+    }, 1500)
   }
 }
 
@@ -637,7 +956,7 @@ async function save () {
 }
 
 // ─── IN-PANEL SHEETS (task form, notes, settings) ─────────────────────────────
-function openSheet (view, taskId = null) {
+function openSheet (view, taskId = null, options = {}) {
   clearHoverTimers()
   if (!isExpanded) expandPanel('user')
   else pinExpandInteraction()
@@ -647,6 +966,7 @@ function openSheet (view, taskId = null) {
   if (window.rmp?.makeKey) window.rmp.makeKey()
   window.RMPSheet.open(view, taskId, {
     getData: () => data,
+    formDefaults: options.formDefaults || {},
     onSave: async (d) => {
       data = d
       await window.rmp.write(data)
@@ -674,8 +994,8 @@ function closeSheet (wasCommit) {
   collapseIfPointerOutsideNotch()
 }
 
-function openForm (taskId) {
-  openSheet('task-form', taskId || null)
+function openForm (taskId, options = {}) {
+  openSheet('task-form', taskId || null, options)
 }
 
 // ─── CATEGORY FILTER ──────────────────────────────────────────────────────────
@@ -692,12 +1012,15 @@ function startCarousel () {
   if (carouselTimer) clearInterval(carouselTimer)
   const tasks = data.tasks.filter(t => t.status !== 'done' && t.status !== 'archived')
   carouselIdx = 0
-  setCarouselText(tasks.length ? tasks[0].title : 'No tasks', false)
+  setCarouselText(getBarCarouselText(), false)
   if (tasks.length > 1) {
     carouselTimer = setInterval(() => {
       carouselIdx = (carouselIdx + 1) % tasks.length
-      setCarouselText(tasks[carouselIdx].title, true)
-    }, 3000)
+      const t = tasks[carouselIdx]
+      const sub = taskSubtitle(t)
+      const hint = sub?.cls === 'remind' ? ` · ${sub.text}` : ''
+      setCarouselText(`${t.title}${hint}`, true)
+    }, 4000)
   }
 }
 
@@ -789,14 +1112,11 @@ function setupEvents () {
     togglePanel()
   })
 
-  // View tabs
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', e => {
+  // View mode toggle
+  document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
       e.stopPropagation()
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
-      tab.classList.add('active')
-      currentView = tab.dataset.view
-      renderCurrentView()
+      setListViewMode(btn.dataset.layout)
     })
   })
 
@@ -805,25 +1125,57 @@ function setupEvents () {
     searchQuery = e.target.value
     renderCurrentView()
   })
-  document.getElementById('filter-category').addEventListener('change', e => {
+  document.getElementById('filter-category')?.addEventListener('change', e => {
     filterCategory = e.target.value
     renderCurrentView()
   })
 
-  // Footer buttons → open popups
+  document.getElementById('btn-back-tasks')?.addEventListener('click', e => {
+    e.stopPropagation()
+    showTasksPanel()
+  })
   document.getElementById('btn-add').addEventListener('click', e => {
     e.stopPropagation()
+    closeFooterMenu()
     pinExpandInteraction()
-    openForm(null)
+    openForm(null, {
+      formDefaults: {
+        planForToday: listViewMode === 'today',
+        remindEnabled: true
+      }
+    })
   })
-  document.getElementById('btn-quick-note').addEventListener('click', e => {
+
+  document.getElementById('btn-more').addEventListener('click', e => {
     e.stopPropagation()
-    openSheet('quick-note', null)
+    toggleFooterMenu()
   })
-  document.getElementById('btn-settings').addEventListener('click', e => {
+
+  document.getElementById('footer-menu')?.addEventListener('click', e => {
+    const action = e.target.closest('[data-action]')?.dataset.action
+    if (!action) return
     e.stopPropagation()
-    openSheet('settings', null)
+    closeFooterMenu()
+    pinExpandInteraction()
+    if (action === 'focus') {
+      if (panelMode === 'pomodoro') showTasksPanel()
+      else openPomodoro()
+    } else if (action === 'note') {
+      openSheet('quick-note', null)
+    } else if (action === 'settings') {
+      openSheet('settings', null)
+    }
   })
+
+  document.getElementById('btn-search-toggle')?.addEventListener('click', e => {
+    e.stopPropagation()
+    if (listViewMode !== 'list') setListViewMode('list')
+    searchOpen = !searchOpen
+    updateSearchRowVisibility()
+    if (searchOpen) document.getElementById('search-input')?.focus()
+  })
+
+  document.addEventListener('click', () => closeFooterMenu())
 
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return

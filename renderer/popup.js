@@ -3,8 +3,13 @@
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let sheetApi = null
+let sheetFormDefaults = {}
 let data = null
 let subtaskDraft = []
+
+function sheetFocusInHandler () {
+  if (window.rmp?.makeKey) window.rmp.makeKey()
+}
 
 function sheetClose () {
   if (sheetApi?.onClose) sheetApi.onClose()
@@ -37,6 +42,7 @@ function resize () {
 window.RMPSheet = {
   open (view, taskId, api) {
     sheetApi = api
+    sheetFormDefaults = api.formDefaults || {}
     data = api.getData()
     data.categories = data.categories || []
     data.settings = data.settings || {}
@@ -48,6 +54,9 @@ window.RMPSheet = {
 
     overlay.classList.remove('hidden')
     overlay.setAttribute('aria-hidden', 'false')
+
+    root.removeEventListener('focusin', sheetFocusInHandler)
+    root.addEventListener('focusin', sheetFocusInHandler)
 
     if (view === 'settings') renderSettings(root)
     else if (view === 'quick-note') renderQuickNote(root)
@@ -261,6 +270,10 @@ function noteDate (iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function todayKey () {
+  return new Date().toISOString().split('T')[0]
+}
+
 // ─── TASK FORM ────────────────────────────────────────────────────────────────
 function renderTaskForm (root, taskId) {
   const task = taskId ? data.tasks.find(t => t.id === taskId) : null
@@ -271,48 +284,37 @@ function renderTaskForm (root, taskId) {
 
   const cats = data.categories || []
   const dlVal = task?.deadline ? new Date(task.deadline).toISOString().split('T')[0] : ''
+  const remindType = task?.reminder?.type || 'never'
+  const remindDate = task?.reminder?.date || todayKey()
+  const remindTime = task?.reminder?.time || '12:00'
+  const planForToday = task
+    ? task.plannedFor === todayKey()
+    : Boolean(sheetFormDefaults.planForToday)
+
+  const remindEnabled = task
+    ? (task.reminder?.type && task.reminder.type !== 'never')
+    : sheetFormDefaults.remindEnabled !== false
+  const advancedRemind = task && ['always', 'before-deadline'].includes(task.reminder?.type)
 
   root.innerHTML = `
     <div class="popup-window">
       <div class="popup-win-header">
-        <span>${task ? 'Edit Task' : 'New Task'}</span>
+        <span>${task ? 'Edit' : 'New reminder'}</span>
         <button id="btn-close" class="icon-btn">✕</button>
       </div>
-      <div class="popup-task-body">
-        <input id="form-name" type="text" class="form-input" placeholder="Task title *" value="${escHtml(task?.title || '')}" />
+      <div class="popup-task-body form-simple">
+        <input id="form-name" type="text" class="form-input form-input--hero" placeholder="What to remember?" value="${escHtml(task?.title || '')}" />
 
-        <div class="form-row">
-          <div class="combo-wrap">
-            <input id="form-category" type="text" class="form-input" placeholder="Category"
-              value="${escHtml(task?.category || '')}" autocomplete="off" />
-            <div id="category-dropdown" class="combo-dropdown hidden"></div>
-          </div>
-          <div class="date-field-wrap">
-            <button id="form-deadline-btn" type="button" class="form-input date-field-btn">${dlVal ? fmtDeadlineBtn(dlVal) : 'No deadline'}</button>
-            <input type="hidden" id="form-deadline" value="${dlVal}" />
-          </div>
-        </div>
-
-        <textarea id="form-notes" class="form-textarea" placeholder="Notes (optional)">${escHtml(task?.notes || '')}</textarea>
-
-        <div class="subtasks-section">
-          <div class="subtasks-header">
-            <span>Subtasks</span>
-            <button id="btn-add-subtask" class="icon-btn small">+ Add</button>
-          </div>
-          <div id="subtask-list" class="subtask-list"></div>
-        </div>
-
-        <div class="reminder-section">
-          <div class="form-labeled-field">
-            <span class="form-field-label">Reminder</span>
-            <select id="form-reminder-type" class="form-select">
-              <option value="never"           ${sel(task?.reminder?.type, 'never', !task)}>None</option>
-              <option value="always"          ${sel(task?.reminder?.type, 'always')}>Daily at time</option>
-              <option value="before-deadline" ${sel(task?.reminder?.type, 'before-deadline')}>Before deadline</option>
-            </select>
-          </div>
-          <div id="reminder-time-row" class="hidden">
+        <div class="reminder-hero">
+          <label class="toggle-label reminder-hero-toggle">
+            <input id="form-remind-enabled" type="checkbox" ${remindEnabled ? 'checked' : ''} />
+            <span>Remind me at</span>
+          </label>
+          <div id="remind-hero-panel" class="${remindEnabled ? '' : 'hidden'}">
+            <div class="reminder-templates">
+              <button type="button" class="reminder-chip" data-date-offset="0">Today</button>
+              <button type="button" class="reminder-chip" data-date-offset="1">Tomorrow</button>
+            </div>
             <div class="reminder-templates">
               <button type="button" class="reminder-chip" data-time="08:00">8 AM</button>
               <button type="button" class="reminder-chip" data-time="09:00">9 AM</button>
@@ -320,51 +322,80 @@ function renderTaskForm (root, taskId) {
               <button type="button" class="reminder-chip" data-time="18:00">6 PM</button>
               <button type="button" class="reminder-chip" data-time="21:00">9 PM</button>
             </div>
-            <div class="form-labeled-field" style="margin-top:6px">
-              <span class="form-field-label">Custom</span>
-              <input id="form-reminder-time" type="time" value="${task?.reminder?.time || '09:00'}" class="form-select" />
-            </div>
-          </div>
-          <div id="reminder-days-row" class="hidden">
-            <div class="reminder-templates">
-              <button type="button" class="reminder-chip" data-days="1">1 day</button>
-              <button type="button" class="reminder-chip" data-days="2">2 days</button>
-              <button type="button" class="reminder-chip" data-days="3">3 days</button>
-              <button type="button" class="reminder-chip" data-days="5">5 days</button>
-              <button type="button" class="reminder-chip" data-days="7">1 week</button>
-            </div>
-            <div class="form-labeled-field" style="margin-top:6px">
-              <span class="form-field-label">Custom days</span>
-              <input id="form-reminder-days" type="number" min="1" max="30" value="${task?.reminder?.daysBefore || 1}" class="form-select" style="max-width:80px" />
-            </div>
-            <div class="form-labeled-field" style="margin-top:6px">
-              <span class="form-field-label">At</span>
-              <input id="form-reminder-deadline-time" type="time" value="${task?.reminder?.time || '09:00'}" class="form-select" />
-            </div>
+            <input id="form-reminder-time" type="time" value="${remindTime}" class="form-select form-time-compact" />
+            <input type="hidden" id="form-remind-date" value="${remindDate}" />
+            <input type="hidden" id="form-reminder-type" value="${advancedRemind ? remindType : (remindEnabled ? 'at-time' : 'never')}" />
           </div>
         </div>
 
-        <div class="recurring-section">
-          <label class="toggle-label">
-            <input id="form-recurring" type="checkbox" ${task?.recurring?.enabled ? 'checked' : ''} />
-            <span>Recurring task</span>
-          </label>
-          <div id="recurring-options" class="hidden form-row">
-            <select id="form-recurring-interval" class="form-select">
-              <option value="daily"   ${sel(task?.recurring?.interval, 'daily')}>Daily</option>
-              <option value="weekly"  ${sel(task?.recurring?.interval, 'weekly', !task?.recurring?.interval)}>Weekly</option>
-              <option value="monthly" ${sel(task?.recurring?.interval, 'monthly')}>Monthly</option>
-            </select>
-            <div id="recurring-day-row" class="hidden">
-              <select id="form-recurring-day" class="form-select">
-                ${['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(d =>
-                  `<option value="${d}" ${task?.recurring?.resetDay === d ? 'selected' : ''}>${d[0].toUpperCase() + d.slice(1)}</option>`
-                ).join('')}
+        <label class="toggle-label form-do-today">
+          <input id="form-do-today" type="checkbox" ${planForToday ? 'checked' : ''} />
+          <span>Show on Today</span>
+        </label>
+
+        <details class="form-more" ${advancedRemind ? 'open' : ''}>
+          <summary>More options</summary>
+          <div class="form-more-body">
+            <textarea id="form-notes" class="form-textarea" placeholder="Notes">${escHtml(task?.notes || '')}</textarea>
+            <div class="form-row">
+              <div class="combo-wrap">
+                <input id="form-category" type="text" class="form-input" placeholder="Category"
+                  value="${escHtml(task?.category || '')}" autocomplete="off" />
+                <div id="category-dropdown" class="combo-dropdown hidden"></div>
+              </div>
+              <div class="date-field-wrap">
+                <button id="form-deadline-btn" type="button" class="form-input date-field-btn">${dlVal ? fmtDeadlineBtn(dlVal) : 'Deadline'}</button>
+                <input type="hidden" id="form-deadline" value="${dlVal}" />
+              </div>
+            </div>
+            <div class="form-labeled-field">
+              <span class="form-field-label">Repeat reminder</span>
+              <select id="form-reminder-advanced" class="form-select">
+                <option value="at-time" ${sel(remindType, 'at-time', !advancedRemind && remindEnabled)}>Once at time</option>
+                <option value="always" ${sel(remindType, 'always')}>Every day</option>
+                <option value="before-deadline" ${sel(remindType, 'before-deadline')}>Before deadline</option>
+                <option value="never" ${sel(remindType, 'never', !remindEnabled)}>None</option>
               </select>
             </div>
+            <div id="reminder-days-row" class="hidden">
+              <div class="reminder-templates">
+                <button type="button" class="reminder-chip" data-days="1">1 day</button>
+                <button type="button" class="reminder-chip" data-days="2">2 days</button>
+                <button type="button" class="reminder-chip" data-days="3">3 days</button>
+                <button type="button" class="reminder-chip" data-days="7">1 week</button>
+              </div>
+              <input id="form-reminder-days" type="number" min="1" max="30" value="${task?.reminder?.daysBefore || 1}" class="form-select" style="max-width:80px;margin-top:6px" />
+              <input id="form-reminder-deadline-time" type="time" value="${task?.reminder?.time || '09:00'}" class="form-select form-time-compact" style="margin-top:6px" />
+            </div>
+            <div class="subtasks-section">
+              <div class="subtasks-header">
+                <span>Subtasks</span>
+                <button id="btn-add-subtask" type="button" class="icon-btn small">+</button>
+              </div>
+              <div id="subtask-list" class="subtask-list"></div>
+            </div>
+            <label class="toggle-label">
+              <input id="form-recurring" type="checkbox" ${task?.recurring?.enabled ? 'checked' : ''} />
+              <span>Recurring task</span>
+            </label>
+            <div id="recurring-options" class="hidden form-row">
+              <select id="form-recurring-interval" class="form-select">
+                <option value="daily"   ${sel(task?.recurring?.interval, 'daily')}>Daily</option>
+                <option value="weekly"  ${sel(task?.recurring?.interval, 'weekly', !task?.recurring?.interval)}>Weekly</option>
+                <option value="monthly" ${sel(task?.recurring?.interval, 'monthly')}>Monthly</option>
+              </select>
+              <div id="recurring-day-row" class="hidden">
+                <select id="form-recurring-day" class="form-select">
+                  ${['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(d =>
+                    `<option value="${d}" ${task?.recurring?.resetDay === d ? 'selected' : ''}>${d[0].toUpperCase() + d.slice(1)}</option>`
+                  ).join('')}
+                </select>
+              </div>
+            </div>
           </div>
-        </div>
-
+        </details>
+      </div>
+      <div class="popup-form-footer">
         <div class="form-actions">
           ${task ? '<button id="btn-delete" class="form-btn danger">Delete</button>' : ''}
           <button id="btn-cancel" class="form-btn">Cancel</button>
@@ -377,10 +408,15 @@ function renderTaskForm (root, taskId) {
   renderSubtaskDraft()
   setupCategoryCombo()
   setupDeadlinePicker()
-  toggleReminderDays()
+  toggleReminderAdvanced()
   setupReminderChips()
+  syncRemindHero()
   toggleRecurringOptions()
   toggleRecurringDay()
+
+  document.getElementById('form-remind-enabled')?.addEventListener('change', () => { syncRemindHero(); resize() })
+  document.getElementById('form-reminder-advanced')?.addEventListener('change', () => { toggleReminderAdvanced(); resize() })
+  document.querySelector('.form-more')?.addEventListener('toggle', () => resize())
 
   document.getElementById('btn-close').addEventListener('click', () => sheetClose())
   document.getElementById('btn-cancel').addEventListener('click', () => sheetClose())
@@ -403,7 +439,6 @@ function renderTaskForm (root, taskId) {
     resize()
   })
 
-  document.getElementById('form-reminder-type').addEventListener('change', () => { toggleReminderDays(); setupReminderChips(); resize() })
   document.getElementById('form-recurring').addEventListener('change', () => { toggleRecurringOptions(); resize() })
   document.getElementById('form-recurring-interval').addEventListener('change', toggleRecurringDay)
   document.getElementById('form-name').addEventListener('keydown', e => {
@@ -411,6 +446,17 @@ function renderTaskForm (root, taskId) {
   })
 
   setTimeout(() => document.getElementById('form-name').focus(), 30)
+}
+
+function syncRemindHero () {
+  const enabled = document.getElementById('form-remind-enabled')?.checked
+  const advanced = document.getElementById('form-reminder-advanced')
+  if (!enabled) {
+    if (advanced) advanced.value = 'never'
+  } else if (advanced?.value === 'never' || !advanced?.value) {
+    if (advanced) advanced.value = 'at-time'
+  }
+  toggleReminderAdvanced()
 }
 
 function renderSubtaskDraft () {
@@ -509,16 +555,45 @@ function setupCategoryCombo () {
   })
 }
 
-function toggleReminderDays () {
-  const type    = document.getElementById('form-reminder-type')?.value
-  const timeRow = document.getElementById('reminder-time-row')
+function offsetDateKey (days) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
+function toggleReminderRows () {
+  toggleReminderAdvanced()
+}
+
+function toggleReminderAdvanced () {
+  const advanced = document.getElementById('form-reminder-advanced')?.value
+    || document.getElementById('form-reminder-type')?.value
+    || 'at-time'
+  const typeHidden = document.getElementById('form-reminder-type')
   const daysRow = document.getElementById('reminder-days-row')
-  if (!timeRow || !daysRow) return
-  timeRow.classList.toggle('hidden', type !== 'always')
-  daysRow.classList.toggle('hidden', type !== 'before-deadline')
+  const enabled = document.getElementById('form-remind-enabled')
+  if (typeHidden) typeHidden.value = advanced
+  if (enabled) enabled.checked = advanced !== 'never'
+  document.getElementById('remind-hero-panel')?.classList.toggle(
+    'hidden',
+    advanced === 'never' || advanced === 'before-deadline' || !enabled?.checked
+  )
+  daysRow?.classList.toggle('hidden', advanced !== 'before-deadline')
 }
 
 function setupReminderChips () {
+  const dateHidden = document.getElementById('form-remind-date')
+  document.querySelectorAll('.reminder-chip[data-date-offset]').forEach(chip => {
+    if (!dateHidden) return
+    const offset = Number(chip.dataset.dateOffset || 0)
+    const key = offsetDateKey(offset)
+    chip.classList.toggle('active', dateHidden.value === key)
+    chip.onclick = () => {
+      dateHidden.value = key
+      document.querySelectorAll('.reminder-chip[data-date-offset]').forEach(c => c.classList.remove('active'))
+      chip.classList.add('active')
+    }
+  })
   document.querySelectorAll('.reminder-chip[data-time]').forEach(chip => {
     const timeInp = document.getElementById('form-reminder-time')
     if (!timeInp) return
@@ -560,8 +635,15 @@ function saveForm (existingTask) {
   if (!title) { document.getElementById('form-name').focus(); return }
 
   const deadlineVal  = document.getElementById('form-deadline').value
-  const reminderType = document.getElementById('form-reminder-type').value
-  const recurring    = document.getElementById('form-recurring').checked
+  const remindEnabled = document.getElementById('form-remind-enabled')?.checked
+  const advancedType = document.getElementById('form-reminder-advanced')?.value
+  const reminderType = remindEnabled
+    ? (advancedType && advancedType !== 'never' ? advancedType : 'at-time')
+    : 'never'
+  const reminderTime = reminderType === 'before-deadline'
+    ? (document.getElementById('form-reminder-deadline-time')?.value || '09:00')
+    : (document.getElementById('form-reminder-time')?.value || '12:00')
+  const recurring    = document.getElementById('form-recurring')?.checked
   const interval     = document.getElementById('form-recurring-interval').value
 
   const category = document.getElementById('form-category').value.trim()
@@ -573,16 +655,20 @@ function saveForm (existingTask) {
     title,
     category,
     deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null,
+    plannedFor: document.getElementById('form-do-today')?.checked ? todayKey() : null,
     notes:    document.getElementById('form-notes').value.trim(),
     subtasks: subtaskDraft.filter(s => s.title.trim()),
     reminder: {
       type: reminderType,
-      time: reminderType === 'before-deadline'
-        ? (document.getElementById('form-reminder-deadline-time')?.value || '09:00')
-        : (document.getElementById('form-reminder-time')?.value || '09:00'),
+      time: reminderTime,
+      date: reminderType === 'at-time'
+        ? (document.getElementById('form-remind-date')?.value || todayKey())
+        : null,
       daysBefore: parseInt(document.getElementById('form-reminder-days')?.value) || 1,
-      snoozedUntil: null,
-      lastFiredAt: null
+      snoozedUntil: existingTask?.reminder?.snoozedUntil ?? null,
+      lastFiredAt: reminderType === existingTask?.reminder?.type
+        ? (existingTask?.reminder?.lastFiredAt ?? null)
+        : null
     },
     recurring: {
       enabled: recurring,

@@ -4,7 +4,7 @@ import AppKit
 enum NotchGeometry {
     static let fallbackWidth: CGFloat = 420
     static let fallbackBarHeight: CGFloat = 32
-    static let expandedMaxHeight: CGFloat = 480
+    static let expandedMaxHeight: CGFloat = 440
     /// Slimmer bar on displays without a camera cutout (notch Macs use exact safe area).
     static let nonNotchBarTrim: CGFloat = 4
     static let minBarHeight: CGFloat = 24

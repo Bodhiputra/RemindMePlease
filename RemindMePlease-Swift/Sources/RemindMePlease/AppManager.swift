@@ -14,8 +14,26 @@ final class AppManager {
     weak var statusItem: NSStatusItem?
 
     private var closedWithReopen = false
+    private var rendererWatcher: RendererWatcher?
 
     private init() {}
+
+    func startDevWatchingIfNeeded() {
+        guard ProcessInfo.processInfo.environment["RMP_DEV"] == "1" else { return }
+        rendererWatcher?.stop()
+        rendererWatcher = RendererWatcher(rendererDir: rendererDir)
+        rendererWatcher?.onChange = { [weak self] in
+            fputs("[RMP dev] renderer changed — reloading UI\n", stderr)
+            self?.reloadAllWebViews()
+        }
+        rendererWatcher?.start()
+    }
+
+    func reloadAllWebViews() {
+        DispatchQueue.main.async {
+            self.mainWebView?.reload()
+        }
+    }
 
     // ── Events → main webview ─────────────────────────────────────────────────
 
@@ -179,6 +197,16 @@ final class AppManager {
                 resolve(false)
             }
 
+        case "notification:show":
+            if let dict = args as? [String: Any] {
+                let title = dict["title"] as? String ?? "RemindMePlease"
+                let body = dict["body"] as? String ?? ""
+                DispatchQueue.main.async {
+                    NotificationHelper.show(title: title, body: body)
+                }
+            }
+            resolve(true)
+
         case "data:openFolder":
             NSWorkspace.shared.open(URL(fileURLWithPath: Storage.shared.folderPath))
             resolve(true)
@@ -204,8 +232,7 @@ final class AppManager {
 
         case "panel:makeKey":
             DispatchQueue.main.async {
-                self.notchPanel?.orderFrontRegardless()
-                self.notchPanel?.makeKeyAndOrderFront(nil)
+                self.notchPanel?.bringToFront()
             }
 
         case "window:move":
@@ -218,6 +245,11 @@ final class AppManager {
         case "tray:setTitle":
             if let title = args as? String {
                 DispatchQueue.main.async { self.statusItem?.button?.title = title }
+            }
+
+        case "keyboard:confetti":
+            DispatchQueue.main.async {
+                KeyboardHelper.postControlL()
             }
 
         case "window:notch-hover-suspended":

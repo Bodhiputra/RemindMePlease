@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "RemindMePlease",
-            path: "Sources/RemindMePlease"
+            path: "Sources/RemindMePlease",
+            linkerSettings: [
+                .linkedFramework("CoreServices")
+            ]
         )
     ]
 )

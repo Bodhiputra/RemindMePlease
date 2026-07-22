@@ -26,7 +26,7 @@ class BaseWebViewController: NSObject, WKNavigationDelegate, WKScriptMessageHand
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
-        webView = WKWebView(frame: .zero, configuration: config)
+        webView = RMPWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         if #available(macOS 13.3, *) {
             webView.underPageBackgroundColor = .clear

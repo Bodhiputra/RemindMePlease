@@ -41,26 +41,32 @@ function checkReminders () {
 
     let shouldFire = false
 
+    if (task.reminder.type === 'at-time') {
+      const dateKey = task.reminder.date || todayKey()
+      if (dateKey === todayKey() && matchesTime(task.reminder.time || '12:00', now)) {
+        shouldFire = !firedToday(task.reminder, now)
+      }
+    }
+
     if (task.reminder.type === 'always') {
-      // Fire daily at 9am — check if it's 9am and hasn't fired today
-      const isNineAm = now.getHours() === 9 && now.getMinutes() === 0
-      const firedToday = task.reminder.lastFiredAt &&
-        new Date(task.reminder.lastFiredAt).toDateString() === now.toDateString()
-      if (isNineAm && !firedToday) shouldFire = true
+      if (matchesTime(task.reminder.time || '09:00', now)) {
+        shouldFire = !firedToday(task.reminder, now)
+      }
     }
 
     if (task.reminder.type === 'before-deadline' && task.deadline) {
       const deadline = new Date(task.deadline)
       const daysUntil = Math.ceil((deadline - now) / (1000 * 60 * 60 * 24))
       const daysBefore = task.reminder.daysBefore || 1
-      const firedToday = task.reminder.lastFiredAt &&
-        new Date(task.reminder.lastFiredAt).toDateString() === now.toDateString()
-      if (daysUntil <= daysBefore && daysUntil >= 0 && !firedToday) shouldFire = true
+      if (daysUntil <= daysBefore && daysUntil >= 0 && matchesTime(task.reminder.time || '09:00', now)) {
+        shouldFire = !firedToday(task.reminder, now)
+      }
     }
 
     if (shouldFire) {
       fireNotification(task)
       task.reminder.lastFiredAt = now.toISOString()
+      if (task.reminder.type === 'at-time') task.reminder.type = 'never'
       changed = true
     }
   })
@@ -69,6 +75,20 @@ function checkReminders () {
     storage.write(data)
     if (win) win.webContents.send('storage:changed')
   }
+}
+
+function todayKey () {
+  return new Date().toISOString().split('T')[0]
+}
+
+function matchesTime (time, now) {
+  const [h, m] = String(time || '09:00').split(':').map(Number)
+  return now.getHours() === h && now.getMinutes() === m
+}
+
+function firedToday (reminder, now) {
+  if (!reminder.lastFiredAt) return false
+  return new Date(reminder.lastFiredAt).toDateString() === now.toDateString()
 }
 
 function fireNotification (task) {

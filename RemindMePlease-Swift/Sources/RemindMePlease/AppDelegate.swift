@@ -8,9 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         quitLegacyElectron()
+        NotificationHelper.requestAuthorizationIfNeeded()
         setupStatusBar()
         setupNotchPanel()
         registerGlobalHotKey()
+        ReminderScheduler.shared.start()
     }
 
     /// Only one app should run — kill the old Electron build if it is still open.
@@ -67,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupNotchPanel() {
         notchPanel = NotchPanel()
+        DispatchQueue.main.async {
+            AppManager.shared.startDevWatchingIfNeeded()
+        }
     }
 
     // ── Global hot key: Cmd+Shift+Space ──────────────────────────────────────
